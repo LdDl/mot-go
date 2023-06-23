@@ -115,5 +115,5 @@ Similar (for code example above)            |  Spread
 <p style="text-align: center;"><i>Trajectories</i></p>
 
 ## References
-- [Implementation of Kalman filter, Dimitrii Lopanov, 2023](https://github.com/LdDl/kalman-rs#implementation-of-discrete-kalman-filter-for-object-tracking-purposes)
+- [Implementation of Kalman filter, Dimitrii Lopanov, 2023](https://github.com/LdDl/kalman-filter#implementation-of-discrete-kalman-filter-for-object-tracking-purposes)
 - [Wikipedia](https://en.wikipedia.org/wiki/Multiple_object_tracking)
