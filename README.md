@@ -1,4 +1,4 @@
-# Very naive implementation of Multi-object tracking in Rust programming language
+# Very naive implementation of Multi-object tracking in Go programming language
 [![GoDoc](https://godoc.org/github.com/LdDl/mot-go?status.svg)](https://godoc.org/github.com/LdDl/mot-go)
 [![Sourcegraph](https://sourcegraph.com/github.com/LdDl/mot-go/-/badge.svg)](https://sourcegraph.com/github.com/LdDl/mot-go?badge)
 [![Go Report Card](https://goreportcard.com/badge/github.com/LdDl/mot-go)](https://goreportcard.com/report/github.com/LdDl/mot-go)
