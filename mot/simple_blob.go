@@ -29,6 +29,32 @@ type SimpleBlob struct {
 	tracker               *kalman_filter.Kalman2D
 }
 
+func NewSimpleBlobWithCenterTime(currentCenter Point, currentBbox Rectangle, dt float64) *SimpleBlob {
+	diagonal := math.Sqrt(math.Pow(currentBbox.Width, 2) + math.Pow(currentBbox.Height, 2))
+
+	/* Kalman filter props */
+	ux := 1.0
+	uy := 1.0
+	stdDevA := 2.0
+	stdDevMx := 0.1
+	stdDevMy := 0.1
+	kf := kalman_filter.NewKalman2D(dt, ux, uy, stdDevA, stdDevMx, stdDevMy, kalman_filter.WithState2D(currentCenter.X, currentCenter.Y))
+	blob := SimpleBlob{
+		id:                    uuid.New(),
+		currentBBox:           currentBbox,
+		currentCenter:         currentCenter,
+		predictedNextPosition: Point{X: 0, Y: 0},
+		track:                 make([]Point, 0, 150),
+		maxTrackLen:           150,
+		active:                false,
+		noMatchTimes:          0,
+		diagonal:              diagonal,
+		tracker:               kf,
+	}
+	blob.track = append(blob.track, blob.currentCenter)
+	return &blob
+}
+
 func NewSimpleBlobWithTime(currentBbox Rectangle, dt float64) *SimpleBlob {
 	centerX := currentBbox.X + currentBbox.Width/2.0
 	centerY := currentBbox.Y + currentBbox.Height/2.0
