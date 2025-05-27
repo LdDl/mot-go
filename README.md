@@ -21,11 +21,25 @@ This one uses similar approach to [this implementation](https://github.com/LdDl/
 
 You can use this library to track vehicles / peoples and etc. when you don't need that much accuracy or ReID.
 
+**What Multi-Object tracking algorithms are implemented?**
+- Centroids distance + diagonal - [mot/simple_tracker#38](mot/simple_tracker#38)
+- [ByteTrack](https://arxiv.org/abs/2110.06864) using greedy matching algorithm - [mot/bytetrack.go#266](mot/bytetrack.go#266)
+- [ByteTrack](https://arxiv.org/abs/2110.06864) using [Hungarian algorithm](https://en.wikipedia.org/wiki/Hungarian_algorithm) via [go-hungarian package](https://github.com/arthurkushman/go-hungarian) - [mot/bytetrack.go#231](mot/bytetrack.go#231)
+
 **Are more advanced algorithms considered to be implemented in futher?**
 
 Yes, I do think so. I guess that [SORT](https://arxiv.org/abs/1602.00763) or naive IoU tracker will be the next one.
 
 If you want to you can contribute via opening [Pull Request](https://github.com/LdDl/mot-go/compare)
+
+**Some examples**
+Simple centroid IoU tracker for three simple tracks |  ByteTrack + Hungarian algorithm for three simple tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_simple_naive.png" width="480">  |  <img src="data/mot_simple_bytetrack_naive.png" width="480">
+
+Simple centroid IoU tracker for spread tracks |  ByteTrack + Hungarian algorithm for spread tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_simple_spread.png" width="480">  |  <img src="data/mot_simple_bytetrack_spread.png" width="480">
 
 ## How to use
 
