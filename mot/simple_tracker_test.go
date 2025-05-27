@@ -65,6 +65,7 @@ func TestMatchObjectsSpread(t *testing.T) {
 		return
 	}
 
+	// Optional: CSV output
 	file, err := os.Create("../data/blobs_spread.csv")
 	if err != nil {
 		t.Error(err)
@@ -128,6 +129,7 @@ func TestMatchObjectsSimilar(t *testing.T) {
 		return
 	}
 
+	// Optional: CSV output
 	file, err := os.Create("../data/blobs_similar.csv")
 	if err != nil {
 		t.Error(err)
