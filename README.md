@@ -72,7 +72,7 @@ func main() {
 		}
 	}
 
-	file, err := os.Create("blobs_similar.csv")
+	file, err := os.Create("blobs_naive.csv")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -110,7 +110,7 @@ If we plot results of filtered tracks we should get something like:
 
 Similar (for code example above)            |  Spread
 :-------------------------:|:-------------------------:
-<img src="data/mot_simple_similar.png" width="640">  |  <img src="data/mot_simple_spread.png" width="640">
+<img src="data/mot_simple_naive.png" width="640">  |  <img src="data/mot_simple_spread.png" width="640">
 
 <p style="text-align: center;"><i>Trajectories</i></p>
 
