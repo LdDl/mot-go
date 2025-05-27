@@ -8,4 +8,7 @@ require (
 	github.com/pkg/errors v0.9.1
 )
 
-require gonum.org/v1/gonum v0.14.0 // indirect
+require (
+	github.com/arthurkushman/go-hungarian v0.0.0-20210331201642-2b0c3bc2fb3f // indirect
+	gonum.org/v1/gonum v0.14.0 // indirect
+)
