@@ -232,13 +232,37 @@ func (bt *ByteTracker) performMatching(
 		if len(trackBBoxes) == 0 || len(detectionIndices) == 0 {
 			return [][2]int{}
 		}
-		// Check if rows <= columns requirement is met for Hungarian
-		if len(trackBBoxes) > len(detectionIndices) {
-			// Fall back to greedy if we have more tracks than detections
-			return bt.performGreedyMatching(iouMatrix, trackBBoxes, detectionIndices)
+		numTracks := len(trackBBoxes)
+		numDetections := len(detectionIndices)
+
+		var paddedMatrix [][]float64
+		var actualNumTracks, actualNumDetections int
+		if numTracks == numDetections {
+			// Square matrix - use as is
+			paddedMatrix = iouMatrix
+			actualNumTracks = numTracks
+			actualNumDetections = numDetections
+		} else {
+			// Rectangular matrix - pad to make it square
+			paddedSize := maxInt(numTracks, numDetections)
+			paddedMatrix = make([][]float64, paddedSize)
+			// Initialize with zeros (dummy IoU values)
+			for i := 0; i < paddedSize; i++ {
+				paddedMatrix[i] = make([]float64, paddedSize)
+			}
+			// Copy original IoU values
+			for i := 0; i < numTracks; i++ {
+				for j := 0; j < numDetections; j++ {
+					paddedMatrix[i][j] = iouMatrix[i][j]
+				}
+			}
+			// Padding is done with 0.0 values (lowest IoU)
+			// No need to explicitly set them as make() initializes with zero values
+			actualNumTracks = numTracks
+			actualNumDetections = numDetections
 		}
 		// Apply Hungarian algorithm
-		assignmentsMap := hungarian.SolveMax(iouMatrix)
+		assignmentsMap := hungarian.SolveMax(paddedMatrix)
 		// Convert map[int]map[int]float64 to [][2]int
 		matches := make([][2]int, 0)
 		for trackIndex, rowMap := range assignmentsMap {
@@ -250,7 +274,7 @@ func (bt *ByteTracker) performMatching(
 					break
 				}
 				// Ensure trackIndex and detectionIndex are within bounds of the current stage's slices
-				if trackIndex < len(trackBBoxes) && detectionIndex < len(detectionIndices) {
+				if trackIndex < actualNumTracks && detectionIndex < actualNumDetections {
 					// @todo: maybe we should check the original IoU value here?
 					// originalIoU := rowMap[detectionIndex]
 					// if originalIoU >= bt.minIoU {
