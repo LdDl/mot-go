@@ -147,6 +147,11 @@ func (blob *SimpleBlob) IncNoMatch() {
 	blob.noMatchTimes++
 }
 
+// ResetNoMatch resets blob's no match times
+func (blob *SimpleBlob) ResetNoMatch() {
+	blob.noMatchTimes = 0
+}
+
 // DistanceTo returns distance to other blob (center to center)
 func (blob *SimpleBlob) DistanceTo(otherBlob *SimpleBlob) float64 {
 	return euclideanDistance(blob.currentCenter, otherBlob.currentCenter)

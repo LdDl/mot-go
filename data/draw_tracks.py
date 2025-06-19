@@ -35,5 +35,7 @@ def plot_with_suff(suff: str):
 
     plt.clf() # clear figure
 
-plot_with_suff('spread')
-plot_with_suff('similar')
+# plot_with_suff('spread')
+# plot_with_suff('naive')
+plot_with_suff('bytetrack_spread')
+plot_with_suff('bytetrack_naive')

@@ -4,6 +4,8 @@ github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym
 github.com/LdDl/kalman-filter v0.2.1 h1:+/KSdJJPPO8p+NC8vIl8W6fbumlyOqYTFOGkgaN/iis=
 github.com/LdDl/kalman-filter v0.2.1/go.mod h1:3zuy/ZAUsDoVpDhCZ/UPjriNnFunwR0DMf6iLDzZ3Cw=
 github.com/ajstarks/svgo v0.0.0-20180226025133-644b8db467af/go.mod h1:K08gAheRH3/J6wwsYMMT4xOr94bZjxIelGM0+d/wbFw=
+github.com/arthurkushman/go-hungarian v0.0.0-20210331201642-2b0c3bc2fb3f h1:tDJoVC0qtOexthMxKXJDTOnKasZYKd1wu//Y32I7XmI=
+github.com/arthurkushman/go-hungarian v0.0.0-20210331201642-2b0c3bc2fb3f/go.mod h1:2BBHlf6LyLGCh71S3bhUrDUQZJAuTJCqxQyrfhq+1xA=
 github.com/boombuler/barcode v1.0.0/go.mod h1:paBWMcWSl3LHKBqUq+rly7CNSldXjb2rDl3JlRe0mD8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/fogleman/gg v1.2.1-0.20190220221249-0403632d5b90/go.mod h1:R/bRT+9gY/C5z7JzPU0zXsXHKM4/ayA+zqcVNZzPa1k=
