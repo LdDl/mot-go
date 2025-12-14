@@ -177,6 +177,99 @@ func main() {
 
 ```
 
+### Example with BlobBBox
+
+When you need to track bounding box size changes (e.g., objects approaching or receding from camera), use `BlobBBox` which tracks the full bounding box state with an 8-D Kalman filter:
+
+```go
+package main
+
+import (
+	"encoding/csv"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/LdDl/mot-go/mot"
+)
+
+func main() {
+	// Same bbox data as SimpleBlob example
+	bboxesOne := [][]float64{[]float64{236, -25, 386, 35}, []float64{237, -24, 387, 36}, /* ... more frames ... */}
+	bboxesTwo := [][]float64{[]float64{321, -25, 471, 35}, []float64{322, -24, 472, 36}, /* ... more frames ... */}
+	bboxesThree := [][]float64{[]float64{151, -25, 301, 35}, []float64{152, -24, 302, 36}, /* ... more frames ... */}
+
+	// Use BlobBBox instead of SimpleBlob
+	tracker := mot.NewNewSimpleTracker[*mot.BlobBBox](15.0, 5)
+	dt := 1.0 / 25.0 // emulate 25 fps
+
+	for idx := range bboxesOne {
+		rectOne := mot.NewRect(bboxesOne[idx][0], bboxesOne[idx][1], bboxesOne[idx][2]-bboxesOne[idx][0], bboxesOne[idx][3]-bboxesOne[idx][1])
+		rectTwo := mot.NewRect(bboxesTwo[idx][0], bboxesTwo[idx][1], bboxesTwo[idx][2]-bboxesTwo[idx][0], bboxesTwo[idx][3]-bboxesTwo[idx][1])
+		rectThree := mot.NewRect(bboxesThree[idx][0], bboxesThree[idx][1], bboxesThree[idx][2]-bboxesThree[idx][0], bboxesThree[idx][3]-bboxesThree[idx][1])
+
+		// Create BlobBBox objects with time step
+		blobOne := mot.NewBlobBBoxWithTime(rectOne, dt)
+		blobTwo := mot.NewBlobBBoxWithTime(rectTwo, dt)
+		blobThree := mot.NewBlobBBoxWithTime(rectThree, dt)
+		blobs := []*mot.BlobBBox{blobOne, blobTwo, blobThree}
+
+		err := tracker.MatchObjects(blobs)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+
+	// Access velocity estimates for each tracked object
+	for objectID, object := range tracker.Objects {
+		vx, vy, vw, vh := object.GetVelocity()
+		bbox := object.GetBBox()
+		fmt.Printf("Object %s: bbox=(%.1f, %.1f, %.1f, %.1f), velocity=(vx=%.2f, vy=%.2f, vw=%.2f, vh=%.2f)\n",
+			objectID.String()[:8], bbox.X, bbox.Y, bbox.Width, bbox.Height, vx, vy, vw, vh)
+	}
+
+	// Write CSV with full bbox data: cx,cy,w,h for each track point
+	file, err := os.Create("blobs_bbox.csv")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+	writer.Comma = ';'
+
+	err = writer.Write([]string{"id", "track"})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	for objectID, object := range tracker.Objects {
+		track := object.GetTrack()
+		bbox := object.GetBBox()
+		data := make([]string, len(track))
+		for idx, pt := range track {
+			// Include center point and bbox dimensions
+			data[idx] = fmt.Sprintf("%f,%f,%f,%f", pt.X, pt.Y, bbox.Width, bbox.Height)
+		}
+		dataStr := strings.Join(data, "|")
+		err = writer.Write([]string{objectID.String(), dataStr})
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+}
+```
+
+The key differences from SimpleBlob:
+- State vector is 8-D: `[cx, cy, w, h, vx, vy, vw, vh]` instead of 4-D `[x, y, vx, vy]`
+- `GetVelocity()` returns all four velocity components: position velocity (vx, vy) and size velocity (vw, vh)
+- `GetBBox()` returns the current filtered bounding box with width and height
+
 If we plot results of filtered tracks we should get something like:
 
 Similar (for code example above)            |  Spread
