@@ -12,6 +12,7 @@ Usage:
 Available plot keys:
   simple_spread, simple_naive, simple_bytetrack_spread, simple_bytetrack_naive
   bbox_spread, bbox_naive, bbox_bytetrack_spread, bbox_bytetrack_naive
+  simple_iou_spread, simple_iou_naive, bbox_iou_spread, bbox_iou_naive
 """
 
 import matplotlib.pyplot as plt
@@ -70,6 +71,32 @@ PLOT_CONFIG = {
         'title': 'MOT for BlobBBox\nvia ByteTrack (dense)',
         'csv': 'blobs_bbox_bytetrack_naive.csv',
         'out': 'mot_bbox_bytetrack_naive.png',
+        'xlim': [100, 450],
+    },
+    # IoU tracker plots - SimpleBlob
+    'simple_iou_spread': {
+        'title': 'MOT for SimpleBlob\nvia IoU tracker (spread)',
+        'csv': 'blobs_iou_spread.csv',
+        'out': 'mot_simple_iou_spread.png',
+        'xlim': [0, 800],
+    },
+    'simple_iou_naive': {
+        'title': 'MOT for SimpleBlob\nvia IoU tracker (dense)',
+        'csv': 'blobs_iou_naive.csv',
+        'out': 'mot_simple_iou_naive.png',
+        'xlim': [100, 450],
+    },
+    # IoU tracker plots - BlobBBox
+    'bbox_iou_spread': {
+        'title': 'MOT for BlobBBox\nvia IoU tracker (spread)',
+        'csv': 'blobs_bbox_iou_spread.csv',
+        'out': 'mot_bbox_iou_spread.png',
+        'xlim': [0, 800],
+    },
+    'bbox_iou_naive': {
+        'title': 'MOT for BlobBBox\nvia IoU tracker (dense)',
+        'csv': 'blobs_bbox_iou_naive.csv',
+        'out': 'mot_bbox_iou_naive.png',
         'xlim': [100, 450],
     },
 }
