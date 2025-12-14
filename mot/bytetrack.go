@@ -11,16 +11,17 @@ import (
 type MatchingAlgorithm uint16
 
 const (
-	// Use the Hungarian algorithm (Kuhn-Munkres) for optimal assignment
+	// MatchingAlgorithmHungarian uses the Hungarian algorithm (Kuhn-Munkres) for optimal assignment
 	MatchingAlgorithmHungarian MatchingAlgorithm = iota
-	// Use a greedy algorithm for faster but potentially suboptimal assignment
+	// MatchingAlgorithmGreedy uses a greedy algorithm for faster but potentially suboptimal assignment
 	MatchingAlgorithmGreedy
 
 	SCALE_FACTOR = 1_000_000.0
 )
 
 // ByteTracker is implementation of Multi-object tracker (MOT) called ByteTrack.
-type ByteTracker struct {
+// B is the blob type implementing Blob[B] interface.
+type ByteTracker[B Blob[B]] struct {
 	// Maximum number of frames an object can be missing before it is removed
 	maxDisappeared int
 	// Maximum distance between two objects to be considered the same
@@ -32,30 +33,30 @@ type ByteTracker struct {
 	// Algorithm to use for matching
 	algorithm MatchingAlgorithm
 	// Main storage
-	Objects map[uuid.UUID]*SimpleBlob
+	Objects map[uuid.UUID]B
 }
 
 // DefaultByteTracker creates a ByteTracker with default parameters.
-func DefaultByteTracker() *ByteTracker {
-	return &ByteTracker{
+func DefaultByteTracker[B Blob[B]]() *ByteTracker[B] {
+	return &ByteTracker[B]{
 		maxDisappeared: 5,
 		minIoU:         0.3,
 		highThresh:     0.5,
 		lowThresh:      0.3,
 		algorithm:      MatchingAlgorithmHungarian,
-		Objects:        make(map[uuid.UUID]*SimpleBlob),
+		Objects:        make(map[uuid.UUID]B),
 	}
 }
 
 // NewByteTracker creates a new instance of ByteTracker with specified parameters.
-func NewByteTracker(maxDisappeared int, minIoU, highThresh, lowThresh float64, algorithm MatchingAlgorithm) *ByteTracker {
-	return &ByteTracker{
+func NewByteTracker[B Blob[B]](maxDisappeared int, minIoU, highThresh, lowThresh float64, algorithm MatchingAlgorithm) *ByteTracker[B] {
+	return &ByteTracker[B]{
 		maxDisappeared: maxDisappeared,
 		minIoU:         minIoU,
 		highThresh:     highThresh,
 		lowThresh:      lowThresh,
 		algorithm:      algorithm,
-		Objects:        make(map[uuid.UUID]*SimpleBlob),
+		Objects:        make(map[uuid.UUID]B),
 	}
 }
 
@@ -66,9 +67,8 @@ type bboxPair struct {
 }
 
 // MatchObjects matches objects in the current frame with existing tracks.
-// Detections are []*SimpleBlob and confidences are []float64.
-// SimpleBlob has an ID and can be updated.
-func (bt *ByteTracker) MatchObjects(detections []*SimpleBlob, confidences []float64) error {
+// Detections are []B and confidences are []float64.
+func (bt *ByteTracker[B]) MatchObjects(detections []B, confidences []float64) error {
 	if len(detections) != len(confidences) {
 		return fmt.Errorf("detections and confidences arrays must have the same length. Conf array size: %d. Detections array size: %d",
 			len(confidences), len(detections))
@@ -95,7 +95,7 @@ func (bt *ByteTracker) MatchObjects(detections []*SimpleBlob, confidences []floa
 	// Set of matched tracks for stage 1
 	matchedTracks := make(map[uuid.UUID]struct{})
 	// Set of matched detection indices for stage 1
-	matchedDetections := make(map[int]struct{}) // Using original detection index
+	matchedDetections := make(map[int]struct{})
 
 	// 1. First stage: Match high confidence detections
 	highDetectionIndices := make([]int, 0)
@@ -128,7 +128,7 @@ func (bt *ByteTracker) MatchObjects(detections []*SimpleBlob, confidences []floa
 	}
 	unmatchedTrackBBoxes := make([]bboxPair, 0)
 	for _, id := range unmatchedTrackIDs {
-		if track, ok := bt.Objects[id]; ok { // Ensure track still exists
+		if track, ok := bt.Objects[id]; ok {
 			unmatchedTrackBBoxes = append(unmatchedTrackBBoxes, bboxPair{
 				ID:   id,
 				BBox: track.GetPredictedBBox(),
@@ -186,8 +186,8 @@ func (bt *ByteTracker) MatchObjects(detections []*SimpleBlob, confidences []floa
 }
 
 // GetActiveTracks returns a slice of active tracks.
-func (bt *ByteTracker) GetActiveTracks() []*SimpleBlob {
-	activeTracks := make([]*SimpleBlob, 0, len(bt.Objects))
+func (bt *ByteTracker[B]) GetActiveTracks() []B {
+	activeTracks := make([]B, 0, len(bt.Objects))
 	for _, track := range bt.Objects {
 		if track.GetNoMatchTimes() < bt.maxDisappeared {
 			activeTracks = append(activeTracks, track)
@@ -196,21 +196,21 @@ func (bt *ByteTracker) GetActiveTracks() []*SimpleBlob {
 	return activeTracks
 }
 
-// createIoUMatrix is helper function to create IoU matrix
-// trackBBoxes: a slice of structs containing track ID and its BBox
-// detectionIndices: a slice of original indices into the `detections` array
-// detections: the full slice of detected SimpleBlobs for the current frame
-func (bt *ByteTracker) createIoUMatrix(
+// createIoUMatrix is helper function to create IoU matrix.
+// trackBBoxes: a slice of structs containing track ID and its BBox.
+// detectionIndices: a slice of original indices into the detections array.
+// detections: the full slice of detected blobs for the current frame.
+func (bt *ByteTracker[B]) createIoUMatrix(
 	trackBBoxes []bboxPair,
 	detectionIndices []int,
-	allDetections []*SimpleBlob,
+	allDetections []B,
 ) [][]float64 {
 	iouMatrix := make([][]float64, len(trackBBoxes))
 	for i, trkBox := range trackBBoxes {
 		row := make([]float64, len(detectionIndices))
 		for j, detIdx := range detectionIndices {
-			detRect := allDetections[detIdx].GetBBox() // Assumes SimpleBlob has GetBBox()
-			iouVal := IoU(trkBox.BBox, detRect)        // Assuming global IoU or from a utils package
+			detRect := allDetections[detIdx].GetBBox()
+			iouVal := IoU(trkBox.BBox, detRect)
 			row[j] = iouVal
 		}
 		iouMatrix[i] = row
@@ -218,11 +218,11 @@ func (bt *ByteTracker) createIoUMatrix(
 	return iouMatrix
 }
 
-// performMatching is helper function to perform matching using Hungarian or Greedy algorithm
-// trackBBoxes: the track bboxes for the current matching stage
-// detectionIndices: the original detection indices for the current matching stage
-// Returns: a slice of [2]int, where each element is {trackIndexInTrackBBoxes, detectionIndexInDetectionIndices}
-func (bt *ByteTracker) performMatching(
+// performMatching is helper function to perform matching using Hungarian or Greedy algorithm.
+// trackBBoxes: the track bboxes for the current matching stage.
+// detectionIndices: the original detection indices for the current matching stage.
+// Returns: a slice of [2]int, where each element is {trackIndexInTrackBBoxes, detectionIndexInDetectionIndices}.
+func (bt *ByteTracker[B]) performMatching(
 	iouMatrix [][]float64,
 	trackBBoxes []bboxPair,
 	detectionIndices []int,
@@ -257,7 +257,6 @@ func (bt *ByteTracker) performMatching(
 				}
 			}
 			// Padding is done with 0.0 values (lowest IoU)
-			// No need to explicitly set them as make() initializes with zero values
 			actualNumTracks = numTracks
 			actualNumDetections = numDetections
 		}
@@ -269,17 +268,13 @@ func (bt *ByteTracker) performMatching(
 			if len(rowMap) > 0 {
 				// Assuming the inner map contains one entry: {detectionIndex: iou_value}
 				var detectionIndex int
-				for detIdx := range rowMap { // Get the first (and assumed only) key
+				// Get the first (and assumed only) key
+				for detIdx := range rowMap {
 					detectionIndex = detIdx
 					break
 				}
 				// Ensure trackIndex and detectionIndex are within bounds of the current stage's slices
 				if trackIndex < actualNumTracks && detectionIndex < actualNumDetections {
-					// @todo: maybe we should check the original IoU value here?
-					// originalIoU := rowMap[detectionIndex]
-					// if originalIoU >= bt.minIoU {
-					// matches = append(matches, [2]int{trackIndex, detectionIndex})
-					// }
 					matches = append(matches, [2]int{trackIndex, detectionIndex})
 				} else {
 					fmt.Printf("Warning: Hungarian assignment out of bounds. TrackIdx: %d, DetIdx: %d\n", trackIndex, detectionIndex)
@@ -294,26 +289,30 @@ func (bt *ByteTracker) performMatching(
 	}
 }
 
-// performGreedyMatching is helper function for greedy matching
-func (bt *ByteTracker) performGreedyMatching(
+// performGreedyMatching is helper function for greedy matching.
+func (bt *ByteTracker[B]) performGreedyMatching(
 	iouMatrix [][]float64,
 	trackBBoxes []bboxPair,
 	detectionIndices []int,
 ) [][2]int {
 	matches := make([][2]int, 0)
-	// Keep track of detection indices (relative to the current stage's detectionIndices slice) that are already matched
+	// Keep track of detection indices that are already matched
 	matchedDetIndicesInStage := make(map[int]struct{})
 	numTracksInStage := len(trackBBoxes)
 	numDetectionsInStage := len(detectionIndices)
 	if numTracksInStage == 0 || numDetectionsInStage == 0 {
 		return matches
 	}
-	for i := 0; i < numTracksInStage; i++ { // Iterate through tracks of the current stage
-		bestIoU := -1.0 // Initialize with a value lower than any possible IoU
+	// Iterate through tracks of the current stage
+	for i := 0; i < numTracksInStage; i++ {
+		// Initialize with a value lower than any possible IoU
+		bestIoU := -1.0
 		bestDetIdxInStage := -1
-		for j := 0; j < numDetectionsInStage; j++ { // Iterate through detections of the current stage
+		// Iterate through detections of the current stage
+		for j := 0; j < numDetectionsInStage; j++ {
 			if _, found := matchedDetIndicesInStage[j]; found {
-				continue // This detection (in current stage) is already matched
+				// This detection (in current stage) is already matched
+				continue
 			}
 			currentIoU := iouMatrix[i][j]
 			// Also check against minIoU here
@@ -332,22 +331,18 @@ func (bt *ByteTracker) performGreedyMatching(
 
 // processMatches updates tracks and marks matched entities.
 // matches: slice of (trackIndex, detectionIndex) pairs.
-//
-//	trackIndex is index into trackBBoxes.
-//	detectionIndex is index into detectionIndices.
-//
 // trackBBoxes: the list of track ID/BBox structs used for this matching stage.
 // detectionIndices: the list of original detection indices used for this stage.
 // iouMatrix: the IoU matrix for this stage.
 // allDetections: the full list of detections in the current frame.
 // matchedTracks: set to add matched track IDs to.
 // matchedDetections: set to add matched original detection indices to.
-func (bt *ByteTracker) processMatches(
-	matches [][2]int, // Assuming performMatching returns [][2]int{{trackIdx, detIdx}, ...}
+func (bt *ByteTracker[B]) processMatches(
+	matches [][2]int,
 	trackBBoxes []bboxPair,
 	detectionIndices []int,
 	iouMatrix [][]float64,
-	allDetections []*SimpleBlob,
+	allDetections []B,
 	matchedTracks map[uuid.UUID]struct{},
 	matchedDetections map[int]struct{},
 ) error {

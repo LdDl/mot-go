@@ -8,14 +8,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-type Blobie interface {
-	TrackLen() int
-	Exists() bool
-	IncNoMatch()
-	DecNoMatch()
-	PredictNextPositionNaive(depth int)
-}
-
+// SimpleBlob is a tracked object using 2D Kalman filter for center position.
+// It implements Blob[*SimpleBlob] interface.
 type SimpleBlob struct {
 	id                    uuid.UUID
 	currentBBox           Rectangle
