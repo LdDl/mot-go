@@ -117,6 +117,16 @@ func (blob *SimpleBlob) GetBBox() Rectangle {
 	return blob.currentBBox
 }
 
+// GetPredictedBBox returns bounding box centered on the predicted next position
+func (blob *SimpleBlob) GetPredictedBBox() Rectangle {
+	return Rectangle{
+		X:      blob.predictedNextPosition.X - blob.currentBBox.Width/2.0,
+		Y:      blob.predictedNextPosition.Y - blob.currentBBox.Height/2.0,
+		Width:  blob.currentBBox.Width,
+		Height: blob.currentBBox.Height,
+	}
+}
+
 // GetDiagonal returns blob's estimated diagonal
 func (blob *SimpleBlob) GetDiagonal() float64 {
 	return blob.diagonal
@@ -189,10 +199,8 @@ func (blob *SimpleBlob) Update(newBlob *SimpleBlob) error {
 	blob.currentCenter.Y = stateY
 	diffX := blob.currentCenter.X - oldX
 	diffY := blob.currentCenter.Y - oldY
-	blob.currentBBox.X -= diffX
-	blob.currentBBox.Y -= diffY
-	blob.currentBBox.Width -= diffX
-	blob.currentBBox.Height -= diffY
+	blob.currentBBox.X += diffX
+	blob.currentBBox.Y += diffY
 	// Update remaining properties
 	blob.diagonal = newBlob.diagonal
 	blob.active = true

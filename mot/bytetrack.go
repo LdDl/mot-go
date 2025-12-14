@@ -87,7 +87,7 @@ func (bt *ByteTracker) MatchObjects(detections []*SimpleBlob, confidences []floa
 			activeTrackIDs = append(activeTrackIDs, id)
 			activeTrackBBoxes = append(activeTrackBBoxes, bboxPair{
 				ID:   id,
-				BBox: track.GetBBox(),
+				BBox: track.GetPredictedBBox(),
 			})
 		}
 	}
@@ -131,7 +131,7 @@ func (bt *ByteTracker) MatchObjects(detections []*SimpleBlob, confidences []floa
 		if track, ok := bt.Objects[id]; ok { // Ensure track still exists
 			unmatchedTrackBBoxes = append(unmatchedTrackBBoxes, bboxPair{
 				ID:   id,
-				BBox: track.GetBBox(),
+				BBox: track.GetPredictedBBox(),
 			})
 		}
 	}
