@@ -274,11 +274,11 @@ func (bt *ByteTracker[B]) performMatching(
 					break
 				}
 				// Ensure trackIndex and detectionIndex are within bounds of the current stage's slices
-				if trackIndex < actualNumTracks && detectionIndex < actualNumDetections {
-					matches = append(matches, [2]int{trackIndex, detectionIndex})
-				} else {
-					fmt.Printf("Warning: Hungarian assignment out of bounds. TrackIdx: %d, DetIdx: %d\n", trackIndex, detectionIndex)
-				}
+			// Note: Out-of-bounds assignments are expected when matrix was padded - they represent
+			// dummy rows/columns and should be silently ignored
+			if trackIndex < actualNumTracks && detectionIndex < actualNumDetections {
+				matches = append(matches, [2]int{trackIndex, detectionIndex})
+			}
 			}
 		}
 		return matches
