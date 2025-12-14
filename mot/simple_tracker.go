@@ -7,10 +7,11 @@ import (
 	"github.com/pkg/errors"
 )
 
-// SimpleTracker is naive implementation of Multi-object tracker (MOT)
-type SimpleTracker struct {
+// SimpleTracker is naive implementation of Multi-object tracker (MOT).
+// B is the blob type implementing Blob[B] interface.
+type SimpleTracker[B Blob[B]] struct {
 	// Main storage
-	Objects map[uuid.UUID]*SimpleBlob
+	Objects map[uuid.UUID]B
 	// Threshold distance (most of time in pixels). Default 30.0
 	minDistThreshold float64
 	// Max no match (max number of frames when object could not be found again). Default is 75
@@ -18,30 +19,31 @@ type SimpleTracker struct {
 }
 
 // NewSimpleTrackerDefault creates default instance of SimpleTracker
-func NewSimpleTrackerDefault() *SimpleTracker {
-	return &SimpleTracker{
-		Objects:          make(map[uuid.UUID]*SimpleBlob),
+func NewSimpleTrackerDefault[B Blob[B]]() *SimpleTracker[B] {
+	return &SimpleTracker[B]{
+		Objects:          make(map[uuid.UUID]B),
 		minDistThreshold: 30.0,
 		maxNoMatch:       75,
 	}
 }
 
 // NewSimpleTracker creates new instance of SimpleTracker
-func NewNewSimpleTracker(minDistThreshold float64, maxNoMatch int) *SimpleTracker {
-	return &SimpleTracker{
-		Objects:          make(map[uuid.UUID]*SimpleBlob),
+func NewNewSimpleTracker[B Blob[B]](minDistThreshold float64, maxNoMatch int) *SimpleTracker[B] {
+	return &SimpleTracker[B]{
+		Objects:          make(map[uuid.UUID]B),
 		minDistThreshold: minDistThreshold,
 		maxNoMatch:       maxNoMatch,
 	}
 }
 
-func (tracker *SimpleTracker) MatchObjects(newObjects []*SimpleBlob) error {
+func (tracker *SimpleTracker[B]) MatchObjects(newObjects []B) error {
 	for objectID := range tracker.Objects {
-		tracker.Objects[objectID].Deactivate() // Make sure that object is marked as deactivated
+		// Make sure that object is marked as deactivated
+		tracker.Objects[objectID].Deactivate()
 		tracker.Objects[objectID].PredictNextPosition()
 	}
-	blobsToRegister := make(map[uuid.UUID]*SimpleBlob)
-	priorityQueue := make(distanceHeap, 0)
+	blobsToRegister := make(map[uuid.UUID]B)
+	priorityQueue := make(distanceHeap[B], 0)
 	for i, newObject := range newObjects {
 		minID := uuid.UUID{}
 		minDistance := math.MaxFloat64
@@ -54,12 +56,12 @@ func (tracker *SimpleTracker) MatchObjects(newObjects []*SimpleBlob) error {
 				minID = objectID
 			}
 		}
-		distanceBlob := distanceBlob{
+		distBlob := distanceBlob[B]{
 			underlying: newObjects[i],
 			distance:   minDistance,
 			id:         minID,
 		}
-		priorityQueue.Push(&distanceBlob)
+		priorityQueue.Push(&distBlob)
 	}
 
 	// We need to prevent double update of objects
@@ -75,26 +77,26 @@ func (tracker *SimpleTracker) MatchObjects(newObjects []*SimpleBlob) error {
 		// For other objects with the same min_id we can create new objects
 		if _, ok := reservedObjects[minID]; ok {
 			// Register it immediately and continue
-			blobsToRegister[underlyingBlob.id] = underlyingBlob
+			blobsToRegister[underlyingBlob.GetID()] = underlyingBlob
 			continue
 		}
 		// Additional check to filter objects
-		if minDistance < underlyingBlob.diagonal*0.5 || minDistance < tracker.minDistThreshold {
+		if minDistance < underlyingBlob.GetDiagonal()*0.5 || minDistance < tracker.minDistThreshold {
 			if _, ok := tracker.Objects[minID]; ok {
 				err := tracker.Objects[minID].Update(underlyingBlob)
 				if err != nil {
 					return errors.Wrapf(err, "Can't update blob with id %s", minID.String())
 				}
 				// Last but not least:
-				// We need to update ID of new object to match existing one (that is why we have &mut in function definition)
-				underlyingBlob.id = minID
+				// We need to update ID of new object to match existing one
+				underlyingBlob.SetID(minID)
 				reservedObjects[minID] = struct{}{}
 			} else {
 				panic("should be impossible")
 			}
 		} else {
 			// Otherwise register object as a new one
-			blobsToRegister[underlyingBlob.id] = underlyingBlob
+			blobsToRegister[underlyingBlob.GetID()] = underlyingBlob
 		}
 	}
 
