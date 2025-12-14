@@ -52,7 +52,7 @@ blob := mot.NewBlobBBoxWithTime(rect, dt)
 vx, vy, vw, vh := blob.GetVelocity()
 ```
 
-Both blob types work with `SimpleTracker` and `ByteTracker`.
+Both blob types work with `SimpleTracker`, `ByteTracker`, and `IoUTracker`.
 
 ## About
 
@@ -66,13 +66,14 @@ This one uses similar approach to [this implementation](https://github.com/LdDl/
 You can use this library to track vehicles / peoples and etc. when you don't need that much accuracy or ReID.
 
 **What Multi-Object tracking algorithms are implemented?**
-- Centroids distance + diagonal - [mot/simple_tracker#38](mot/simple_tracker#38)
+- Centroids distance + diagonal - [mot/simple_tracker.go](mot/simple_tracker.go)
 - [ByteTrack](https://arxiv.org/abs/2110.06864) using greedy matching algorithm - [mot/bytetrack.go#266](mot/bytetrack.go#266)
 - [ByteTrack](https://arxiv.org/abs/2110.06864) using [Hungarian algorithm](https://en.wikipedia.org/wiki/Hungarian_algorithm) via [go-hungarian package](https://github.com/arthurkushman/go-hungarian) - [mot/bytetrack.go#231](mot/bytetrack.go#231)
+- IoU tracker with hybrid IoU + distance matching - [mot/iou_tracker.go](mot/iou_tracker.go)
 
 **Are more advanced algorithms considered to be implemented in futher?**
 
-Yes, I do think so. I guess that [SORT](https://arxiv.org/abs/1602.00763) or naive IoU tracker will be the next one.
+Yes, I do think so. I guess that [SORT](https://arxiv.org/abs/1602.00763) will be the next one.
 
 If you want to you can contribute via opening [Pull Request](https://github.com/LdDl/mot-go/compare)
 
@@ -97,6 +98,16 @@ Simple tracker for dense tracks |  ByteTrack for dense tracks
 Simple tracker for spread tracks |  ByteTrack for spread tracks
 :-------------------------:|:-------------------------:
 <img src="data/mot_bbox_spread.png" width="480">  |  <img src="data/mot_bbox_bytetrack_spread.png" width="480">
+
+### IoU Tracker
+
+SimpleBlob dense tracks |  SimpleBlob spread tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_simple_iou_naive.png" width="480">  |  <img src="data/mot_simple_iou_spread.png" width="480">
+
+BlobBBox dense tracks |  BlobBBox spread tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_bbox_iou_naive.png" width="480">  |  <img src="data/mot_bbox_iou_spread.png" width="480">
 
 ## How to use
 
