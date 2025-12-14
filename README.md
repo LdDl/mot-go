@@ -24,7 +24,35 @@ tracker := mot.NewNewSimpleTracker(15.0, 5)
 tracker := mot.NewNewSimpleTracker[*mot.SimpleBlob](15.0, 5)
 ```
 
-This change enables future implementations like `BlobBBox` (Kalman filter tracking with full bounding box dynamics) without duplicating tracker code.
+This change enables custom blob implementations like `BlobBBox` (8-D Kalman filter tracking full bounding box dynamics) without duplicating tracker code.
+
+## Blob Types
+
+All trackers are generic over the `Blob` interface, so you can choose between two implementations:
+
+| Type | State Dimensions | Kalman Filter | Use Case |
+|------|-----------------|---------------|----------|
+| `SimpleBlob` | 4D (x, y, vx, vy) | 2D position tracking | When you only need centroid tracking. Faster and simpler. |
+| `BlobBBox` | 8D (cx, cy, w, h, vx, vy, vw, vh) | Full bbox tracking | When you need to track bounding box size changes (e.g., objects approaching/receding from camera). |
+
+### SimpleBlob Usage
+
+```go
+tracker := mot.NewNewSimpleTracker[*mot.SimpleBlob](15.0, 5)
+blob := mot.NewSimpleBlobWithTime(rect, dt)
+```
+
+### BlobBBox Usage
+
+```go
+tracker := mot.NewNewSimpleTracker[*mot.BlobBBox](15.0, 5)
+blob := mot.NewBlobBBoxWithTime(rect, dt)
+
+// Access velocity estimates (position and size velocities)
+vx, vy, vw, vh := blob.GetVelocity()
+```
+
+Both blob types work with `SimpleTracker` and `ByteTracker`.
 
 ## About
 
@@ -49,13 +77,26 @@ Yes, I do think so. I guess that [SORT](https://arxiv.org/abs/1602.00763) or nai
 If you want to you can contribute via opening [Pull Request](https://github.com/LdDl/mot-go/compare)
 
 **Some examples**
-Simple centroid IoU tracker for three simple tracks |  ByteTrack + Hungarian algorithm for three simple tracks
+
+### SimpleBlob (centroid tracking)
+
+Simple tracker for dense tracks |  ByteTrack for dense tracks
 :-------------------------:|:-------------------------:
 <img src="data/mot_simple_naive.png" width="480">  |  <img src="data/mot_simple_bytetrack_naive.png" width="480">
 
-Simple centroid IoU tracker for spread tracks |  ByteTrack + Hungarian algorithm for spread tracks
+Simple tracker for spread tracks |  ByteTrack for spread tracks
 :-------------------------:|:-------------------------:
 <img src="data/mot_simple_spread.png" width="480">  |  <img src="data/mot_simple_bytetrack_spread.png" width="480">
+
+### BlobBBox (bounding box tracking)
+
+Simple tracker for dense tracks |  ByteTrack for dense tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_bbox_naive.png" width="480">  |  <img src="data/mot_bbox_bytetrack_naive.png" width="480">
+
+Simple tracker for spread tracks |  ByteTrack for spread tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_bbox_spread.png" width="480">  |  <img src="data/mot_bbox_bytetrack_spread.png" width="480">
 
 ## How to use
 
