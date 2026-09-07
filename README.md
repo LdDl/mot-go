@@ -8,6 +8,7 @@
 
 - [About](#about)
 - [How to use](#how-to-use)
+- [Track lifetime: frames or seconds](#track-lifetime-frames-or-seconds)
 - [References](#References)
 
 ## Breaking Changes (v0.4.0)
@@ -288,6 +289,26 @@ Similar (for code example above)            |  Spread
 <img src="data/mot_simple_naive.png" width="640">  |  <img src="data/mot_simple_spread.png" width="640">
 
 <p style="text-align: center;"><i>Trajectories</i></p>
+
+## Track lifetime: frames or seconds
+
+A tracker drops an object once it has gone unmatched for too long. By default that limit is a number of frames (`maxNoMatch` for `IoUTracker`/`SimpleTracker`, `maxDisappeared` for `ByteTracker`). A frame count silently changes meaning whenever the effective frame rate does: every 2nd frame processed, a detector that slowed down under load, a stream that stalled - 60 frames is 2 s at one moment and 12 s at another, while an occlusion lasts the same number of seconds regardless.
+
+Switch the limit to time with `SetMaxLostSeconds`:
+
+```go
+tracker := mot.NewIoUTracker[*mot.BlobBBox](60, 0.3)
+tracker.SetMaxLostSeconds(2.0) // the frame limit is ignored from now on
+```
+
+The unmatched time of a track is the sum of the cycle times (`dt`) of the frames it was missed on, so it is only as good as the `dt` you report. Build detections with the real interval since the previous processed frame (`NewBlobBBoxWithTime`), not with `1 / fps`, and on frames **without** detections call `tracker.SetDt(dt)` before `MatchObjects`, because there is no detection to carry it:
+
+```go
+tracker.SetDt(dt) // every frame: real seconds since the previous processed frame
+if err := tracker.MatchObjects(detections); err != nil { ... }
+```
+
+`SetMaxNoMatch` (`SetMaxDisappeared` for `ByteTracker`) switches back to the frame rule. `GetLostSeconds` on a blob exposes the accumulated unmatched time per track.
 
 ## References
 - [Implementation of Kalman filter, Dimitrii Lopanov, 2023](https://github.com/LdDl/kalman-filter#implementation-of-discrete-kalman-filter-for-object-tracking-purposes)

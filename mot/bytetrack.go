@@ -24,6 +24,8 @@ const (
 type ByteTracker[B Blob[B]] struct {
 	// Maximum number of frames an object can be missing before it is removed
 	maxDisappeared int
+	// When positive, tracks expire by unmatched time instead of by maxDisappeared frames. Default is 0
+	maxLostSeconds float64
 	// Maximum distance between two objects to be considered the same
 	minIoU float64
 	// High detection confidence threshold
@@ -60,6 +62,52 @@ func NewByteTracker[B Blob[B]](maxDisappeared int, minIoU, highThresh, lowThresh
 	}
 }
 
+// SetMaxLostSeconds switches track expiry from a frame count to time: a track is
+// removed once it has been unmatched for more than the given seconds. A frame
+// count changes meaning whenever the effective frame rate does - frame skipping,
+// a throttled detector, a stalled stream - while an occlusion lasts the same
+// number of seconds regardless. Non-positive values are ignored
+func (bt *ByteTracker[B]) SetMaxLostSeconds(seconds float64) {
+	if seconds > 0 {
+		bt.maxLostSeconds = seconds
+	}
+}
+
+// SetMaxDisappeared switches track expiry back to a frame count (a track is removed once it reaches maxDisappeared missed frames)
+func (bt *ByteTracker[B]) SetMaxDisappeared(maxDisappeared int) {
+	bt.maxDisappeared = maxDisappeared
+	bt.maxLostSeconds = 0
+}
+
+// GetMaxLostSeconds returns the time-based expiry limit, 0 when expiry is by frames
+func (bt *ByteTracker[B]) GetMaxLostSeconds() float64 {
+	return bt.maxLostSeconds
+}
+
+// GetMaxDisappeared returns the frame-based expiry limit; in effect only while GetMaxLostSeconds is 0
+func (bt *ByteTracker[B]) GetMaxDisappeared() int {
+	return bt.maxDisappeared
+}
+
+// SetDt rebuilds every track for a new cycle time. MatchObjects does the same
+// from the first detection it receives, but a frame without detections carries
+// none, so call this before it: otherwise on such frames the tracks are
+// predicted and expired over whatever interval the previous frame had, not the
+// real one
+func (bt *ByteTracker[B]) SetDt(dt float64) {
+	for _, object := range bt.Objects {
+		object.SetDt(dt)
+	}
+}
+
+// isAlive reports whether a track is still alive, i.e. not lost for longer than allowed
+func (bt *ByteTracker[B]) isAlive(track B) bool {
+	if bt.maxLostSeconds > 0 {
+		return track.GetLostSeconds() <= bt.maxLostSeconds
+	}
+	return track.GetNoMatchTimes() < bt.maxDisappeared
+}
+
 // bboxPair is a helper struct to pair track ID with its bounding box.
 type bboxPair struct {
 	ID   uuid.UUID
@@ -92,7 +140,7 @@ func (bt *ByteTracker[B]) MatchObjects(detections []B, confidences []float64) er
 	activeTrackIDs := make([]uuid.UUID, 0)
 	activeTrackBBoxes := make([]bboxPair, 0)
 	for id, track := range bt.Objects {
-		if track.GetNoMatchTimes() < bt.maxDisappeared {
+		if bt.isAlive(track) {
 			activeTrackIDs = append(activeTrackIDs, id)
 			activeTrackBBoxes = append(activeTrackBBoxes, bboxPair{
 				ID:   id,
@@ -186,7 +234,7 @@ func (bt *ByteTracker[B]) MatchObjects(detections []B, confidences []float64) er
 
 	// 5. Remove tracks that have disappeared for too long
 	for id, track := range bt.Objects {
-		if track.GetNoMatchTimes() >= bt.maxDisappeared {
+		if !bt.isAlive(track) {
 			delete(bt.Objects, id)
 		}
 	}
@@ -198,7 +246,7 @@ func (bt *ByteTracker[B]) MatchObjects(detections []B, confidences []float64) er
 func (bt *ByteTracker[B]) GetActiveTracks() []B {
 	activeTracks := make([]B, 0, len(bt.Objects))
 	for _, track := range bt.Objects {
-		if track.GetNoMatchTimes() < bt.maxDisappeared {
+		if bt.isAlive(track) {
 			activeTracks = append(activeTracks, track)
 		}
 	}

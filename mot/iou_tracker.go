@@ -11,6 +11,8 @@ import (
 type IoUTracker[B Blob[B]] struct {
 	// Max no match (max number of frames when object could not be found again)
 	maxNoMatch int
+	// When positive, tracks expire by unmatched time instead of by maxNoMatch frames. Default is 0
+	maxLostSeconds float64
 	// IoU threshold for matching
 	iouThreshold float64
 	// Storage for tracked objects
@@ -34,6 +36,52 @@ func NewIoUTracker[B Blob[B]](maxNoMatch int, iouThreshold float64) *IoUTracker[
 		iouThreshold: iouThreshold,
 		Objects:      make(map[uuid.UUID]B),
 	}
+}
+
+// SetMaxLostSeconds switches track expiry from a frame count to time: a track is
+// removed once it has been unmatched for more than the given seconds. A frame
+// count changes meaning whenever the effective frame rate does - frame skipping,
+// a throttled detector, a stalled stream - while an occlusion lasts the same
+// number of seconds regardless. Non-positive values are ignored
+func (tracker *IoUTracker[B]) SetMaxLostSeconds(seconds float64) {
+	if seconds > 0 {
+		tracker.maxLostSeconds = seconds
+	}
+}
+
+// SetMaxNoMatch switches track expiry back to a frame count (an object is removed after more than maxNoMatch missed frames)
+func (tracker *IoUTracker[B]) SetMaxNoMatch(maxNoMatch int) {
+	tracker.maxNoMatch = maxNoMatch
+	tracker.maxLostSeconds = 0
+}
+
+// GetMaxLostSeconds returns the time-based expiry limit, 0 when expiry is by frames
+func (tracker *IoUTracker[B]) GetMaxLostSeconds() float64 {
+	return tracker.maxLostSeconds
+}
+
+// GetMaxNoMatch returns the frame-based expiry limit; in effect only while GetMaxLostSeconds is 0
+func (tracker *IoUTracker[B]) GetMaxNoMatch() int {
+	return tracker.maxNoMatch
+}
+
+// SetDt rebuilds every track for a new cycle time. MatchObjects does the same
+// from the first detection it receives, but a frame without detections carries
+// none, so call this before it: otherwise on such frames the tracks are
+// predicted and expired over whatever interval the previous frame had, not the
+// real one
+func (tracker *IoUTracker[B]) SetDt(dt float64) {
+	for _, object := range tracker.Objects {
+		object.SetDt(dt)
+	}
+}
+
+// isExpired reports whether an unmatched track has been lost for longer than allowed
+func (tracker *IoUTracker[B]) isExpired(object B) bool {
+	if tracker.maxLostSeconds > 0 {
+		return object.GetLostSeconds() > tracker.maxLostSeconds
+	}
+	return object.GetNoMatchTimes() > tracker.maxNoMatch
 }
 
 // iouDistanceBlob holds a blob with its match score and target ID for priority queue
@@ -197,7 +245,7 @@ func (tracker *IoUTracker[B]) MatchObjects(newObjects []B) error {
 
 	// Clean up existing data - remove objects not found for a long time
 	for id, object := range tracker.Objects {
-		if object.GetNoMatchTimes() > tracker.maxNoMatch {
+		if tracker.isExpired(object) {
 			delete(tracker.Objects, id)
 		}
 	}

@@ -18,6 +18,7 @@ type SimpleBlob struct {
 	track                 []Point
 	maxTrackLen           int
 	active                bool
+	lostSeconds           float64
 	noMatchTimes          int
 	diagonal              float64
 	tracker               *kalman_filter.Kalman2D
@@ -146,14 +147,21 @@ func (blob *SimpleBlob) GetNoMatchTimes() int {
 	return blob.noMatchTimes
 }
 
-// IncNoMatch increases blob's no match times
+// IncNoMatch registers a missed frame: one more frame, and its cycle time worth of seconds
 func (blob *SimpleBlob) IncNoMatch() {
 	blob.noMatchTimes++
+	blob.lostSeconds += blob.tracker.GetDt()
 }
 
-// ResetNoMatch resets blob's no match times
+// ResetNoMatch resets blob's no match times and lost seconds
 func (blob *SimpleBlob) ResetNoMatch() {
 	blob.noMatchTimes = 0
+	blob.lostSeconds = 0
+}
+
+// GetLostSeconds returns how long the blob has been unmatched, see Blob.GetLostSeconds
+func (blob *SimpleBlob) GetLostSeconds() float64 {
+	return blob.lostSeconds
 }
 
 // DistanceTo returns distance to other blob (center to center)
@@ -209,6 +217,7 @@ func (blob *SimpleBlob) Update(newBlob *SimpleBlob) error {
 	blob.diagonal = newBlob.diagonal
 	blob.active = true
 	blob.noMatchTimes = 0
+	blob.lostSeconds = 0
 	// Update track
 	blob.track = append(blob.track, blob.currentCenter)
 	if len(blob.track) > blob.maxTrackLen {

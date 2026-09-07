@@ -29,6 +29,11 @@ type Blob[Self any] interface {
 	GetNoMatchTimes() int
 	IncNoMatch()
 	ResetNoMatch()
+	// GetLostSeconds reports how long the object has been unmatched, in seconds:
+	// the cycle times of the consecutive frames it was missed on, summed. Reset
+	// by a match. Unlike GetNoMatchTimes it keeps its meaning when the effective
+	// frame rate changes (frame skipping, a throttled detector, a stalled stream)
+	GetLostSeconds() float64
 
 	// Sampling interval
 	// GetDt reports the cycle time the underlying Kalman filter is built for

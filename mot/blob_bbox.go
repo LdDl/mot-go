@@ -18,6 +18,7 @@ type BlobBBox struct {
 	track         []Point
 	maxTrackLen   int
 	active        bool
+	lostSeconds   float64
 	noMatchTimes  int
 	diagonal      float64
 	tracker       *kalman_filter.KalmanBBox
@@ -133,14 +134,21 @@ func (blob *BlobBBox) GetNoMatchTimes() int {
 	return blob.noMatchTimes
 }
 
-// IncNoMatch increases blob's no match times
+// IncNoMatch registers a missed frame: one more frame, and its cycle time worth of seconds
 func (blob *BlobBBox) IncNoMatch() {
 	blob.noMatchTimes++
+	blob.lostSeconds += blob.tracker.GetDt()
 }
 
-// ResetNoMatch resets blob's no match times
+// ResetNoMatch resets blob's no match times and lost seconds
 func (blob *BlobBBox) ResetNoMatch() {
 	blob.noMatchTimes = 0
+	blob.lostSeconds = 0
+}
+
+// GetLostSeconds returns how long the blob has been unmatched, see Blob.GetLostSeconds
+func (blob *BlobBBox) GetLostSeconds() float64 {
+	return blob.lostSeconds
 }
 
 // DistanceTo returns distance to other blob (center to center)
@@ -211,6 +219,7 @@ func (blob *BlobBBox) Update(newBlob *BlobBBox) error {
 	// Update remaining properties
 	blob.active = true
 	blob.noMatchTimes = 0
+	blob.lostSeconds = 0
 
 	// Update track with center position
 	blob.track = append(blob.track, Point{X: cx, Y: cy})
