@@ -38,10 +38,10 @@ func NewIoUTracker[B Blob[B]](maxNoMatch int, iouThreshold float64) *IoUTracker[
 
 // iouDistanceBlob holds a blob with its match score and target ID for priority queue
 type iouDistanceBlob[B Blob[B]] struct {
-	score  float64
-	minID  uuid.UUID
-	blob   B
-	index  int
+	score float64
+	minID uuid.UUID
+	blob  B
+	index int
 }
 
 // iouHeap implements heap.Interface for max-heap by score
@@ -77,6 +77,19 @@ func (h *iouHeap[B]) Pop() any {
 
 // MatchObjects matches new detections to existing tracked objects using hybrid IoU + distance.
 func (tracker *IoUTracker[B]) MatchObjects(newObjects []B) error {
+	// The caller reports the real time since the previous call through the cycle
+	// time of the incoming detections. Existing tracks were built for whatever
+	// interval was current when they were created, so rebuild them for this one:
+	// predicting a moving object over a nominal 40 ms when 160 ms actually
+	// elapsed places the predicted box a whole stride short of the detection,
+	// and the match is then lost for no other reason
+	if len(newObjects) > 0 {
+		dt := newObjects[0].GetDt()
+		for objectID := range tracker.Objects {
+			tracker.Objects[objectID].SetDt(dt)
+		}
+	}
+
 	// Mark all existing objects as deactivated
 	for _, object := range tracker.Objects {
 		object.Deactivate()

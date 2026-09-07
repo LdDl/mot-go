@@ -166,6 +166,16 @@ func (blob *SimpleBlob) DistanceToPredicted(otherBlob *SimpleBlob) float64 {
 	return euclideanDistance(blob.predictedNextPosition, otherBlob.predictedNextPosition)
 }
 
+// GetDt returns the cycle time the Kalman filter is currently built for
+func (blob *SimpleBlob) GetDt() float64 {
+	return blob.tracker.GetDt()
+}
+
+// SetDt rebuilds the Kalman filter for a new cycle time
+func (blob *SimpleBlob) SetDt(dt float64) {
+	blob.tracker.SetDt(dt)
+}
+
 // PredictNextPosition execute Kalman filter's first step but without re-evaluating state vector based on Kalman gain
 func (blob *SimpleBlob) PredictNextPosition() {
 	blob.tracker.Predict()

@@ -37,6 +37,19 @@ func NewNewSimpleTracker[B Blob[B]](minDistThreshold float64, maxNoMatch int) *S
 }
 
 func (tracker *SimpleTracker[B]) MatchObjects(newObjects []B) error {
+	// The caller reports the real time since the previous call through the cycle
+	// time of the incoming detections. Existing tracks were built for whatever
+	// interval was current when they were created, so rebuild them for this one:
+	// predicting a moving object over a nominal 40 ms when 160 ms actually
+	// elapsed places the predicted box a whole stride short of the detection,
+	// and the match is then lost for no other reason
+	if len(newObjects) > 0 {
+		dt := newObjects[0].GetDt()
+		for objectID := range tracker.Objects {
+			tracker.Objects[objectID].SetDt(dt)
+		}
+	}
+
 	for objectID := range tracker.Objects {
 		// Make sure that object is marked as deactivated
 		tracker.Objects[objectID].Deactivate()

@@ -74,6 +74,15 @@ func (bt *ByteTracker[B]) MatchObjects(detections []B, confidences []float64) er
 			len(confidences), len(detections))
 	}
 
+	// Adopt the real interval between calls, reported through the cycle time of
+	// the incoming detections. See SimpleTracker.MatchObjects for why
+	if len(detections) > 0 {
+		dt := detections[0].GetDt()
+		for _, track := range bt.Objects {
+			track.SetDt(dt)
+		}
+	}
+
 	// Predict next positions for all existing tracks via Kalman filter
 	for _, track := range bt.Objects {
 		track.PredictNextPosition()
@@ -273,12 +282,14 @@ func (bt *ByteTracker[B]) performMatching(
 					detectionIndex = detIdx
 					break
 				}
-				// Ensure trackIndex and detectionIndex are within bounds of the current stage's slices
-			// Note: Out-of-bounds assignments are expected when matrix was padded - they represent
-			// dummy rows/columns and should be silently ignored
-			if trackIndex < actualNumTracks && detectionIndex < actualNumDetections {
-				matches = append(matches, [2]int{trackIndex, detectionIndex})
-			}
+				// Ensure trackIndex and detectionIndex are within bounds of the
+				// current stage's slices. Anything outside landed on a padding
+				// column added to square the cost matrix, which is the ordinary
+				// outcome whenever there are more detections than tracks - drop
+				// it silently, the way the Rust implementation does
+				if trackIndex < actualNumTracks && detectionIndex < actualNumDetections {
+					matches = append(matches, [2]int{trackIndex, detectionIndex})
+				}
 			}
 		}
 		return matches
@@ -360,6 +371,12 @@ func (bt *ByteTracker[B]) processMatches(
 					return fmt.Errorf("failed to update track %s: %w", trackID, err)
 				}
 				track.ResetNoMatch()
+				// Hand the track's identity back to the caller's detection, the
+				// way SimpleTracker does. Callers read the id straight off the
+				// detections they passed in; without this every detection keeps
+				// the throwaway id it was constructed with, so a perfectly
+				// tracked object looks like a brand new object on every frame
+				allDetections[originalDetIdx].SetID(trackID)
 				matchedTracks[trackID] = struct{}{}
 				matchedDetections[originalDetIdx] = struct{}{}
 			}

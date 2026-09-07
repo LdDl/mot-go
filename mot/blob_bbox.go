@@ -161,6 +161,16 @@ func (blob *BlobBBox) DistanceToPredicted(otherBlob *BlobBBox) float64 {
 	return euclideanDistance(predictedCenter, otherPredictedCenter)
 }
 
+// GetDt returns the cycle time the Kalman filter is currently built for
+func (blob *BlobBBox) GetDt() float64 {
+	return blob.tracker.GetDt()
+}
+
+// SetDt rebuilds the Kalman filter for a new cycle time
+func (blob *BlobBBox) SetDt(dt float64) {
+	blob.tracker.SetDt(dt)
+}
+
 // PredictNextPosition executes Kalman filter prediction step
 func (blob *BlobBBox) PredictNextPosition() {
 	blob.tracker.Predict()

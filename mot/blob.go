@@ -30,6 +30,14 @@ type Blob[Self any] interface {
 	IncNoMatch()
 	ResetNoMatch()
 
+	// Sampling interval
+	// GetDt reports the cycle time the underlying Kalman filter is built for
+	GetDt() float64
+	// SetDt rebuilds the filter for a new cycle time. Frames rarely arrive at
+	// exactly the nominal rate, and a discrete filter is only valid for the
+	// interval its transition and process-noise matrices were built for
+	SetDt(dt float64)
+
 	// Kalman operations
 	PredictNextPosition()
 	Update(measurement Self) error
