@@ -24,7 +24,35 @@ tracker := mot.NewNewSimpleTracker(15.0, 5)
 tracker := mot.NewNewSimpleTracker[*mot.SimpleBlob](15.0, 5)
 ```
 
-This change enables future implementations like `BlobBBox` (Kalman filter tracking with full bounding box dynamics) without duplicating tracker code.
+This change enables custom blob implementations like `BlobBBox` (8-D Kalman filter tracking full bounding box dynamics) without duplicating tracker code.
+
+## Blob Types
+
+All trackers are generic over the `Blob` interface, so you can choose between two implementations:
+
+| Type | State Dimensions | Kalman Filter | Use Case |
+|------|-----------------|---------------|----------|
+| `SimpleBlob` | 4D (x, y, vx, vy) | 2D position tracking | When you only need centroid tracking. Faster and simpler. |
+| `BlobBBox` | 8D (cx, cy, w, h, vx, vy, vw, vh) | Full bbox tracking | When you need to track bounding box size changes (e.g., objects approaching/receding from camera). |
+
+### SimpleBlob Usage
+
+```go
+tracker := mot.NewNewSimpleTracker[*mot.SimpleBlob](15.0, 5)
+blob := mot.NewSimpleBlobWithTime(rect, dt)
+```
+
+### BlobBBox Usage
+
+```go
+tracker := mot.NewNewSimpleTracker[*mot.BlobBBox](15.0, 5)
+blob := mot.NewBlobBBoxWithTime(rect, dt)
+
+// Access velocity estimates (position and size velocities)
+vx, vy, vw, vh := blob.GetVelocity()
+```
+
+Both blob types work with `SimpleTracker`, `ByteTracker`, and `IoUTracker`.
 
 ## About
 
@@ -38,24 +66,48 @@ This one uses similar approach to [this implementation](https://github.com/LdDl/
 You can use this library to track vehicles / peoples and etc. when you don't need that much accuracy or ReID.
 
 **What Multi-Object tracking algorithms are implemented?**
-- Centroids distance + diagonal - [mot/simple_tracker#38](mot/simple_tracker#38)
+- Centroids distance + diagonal - [mot/simple_tracker.go](mot/simple_tracker.go)
 - [ByteTrack](https://arxiv.org/abs/2110.06864) using greedy matching algorithm - [mot/bytetrack.go#266](mot/bytetrack.go#266)
 - [ByteTrack](https://arxiv.org/abs/2110.06864) using [Hungarian algorithm](https://en.wikipedia.org/wiki/Hungarian_algorithm) via [go-hungarian package](https://github.com/arthurkushman/go-hungarian) - [mot/bytetrack.go#231](mot/bytetrack.go#231)
+- IoU tracker with hybrid IoU + distance matching - [mot/iou_tracker.go](mot/iou_tracker.go)
 
 **Are more advanced algorithms considered to be implemented in futher?**
 
-Yes, I do think so. I guess that [SORT](https://arxiv.org/abs/1602.00763) or naive IoU tracker will be the next one.
+Yes, I do think so. I guess that [SORT](https://arxiv.org/abs/1602.00763) will be the next one.
 
 If you want to you can contribute via opening [Pull Request](https://github.com/LdDl/mot-go/compare)
 
 **Some examples**
-Simple centroid IoU tracker for three simple tracks |  ByteTrack + Hungarian algorithm for three simple tracks
+
+### SimpleBlob (centroid tracking)
+
+Simple tracker for dense tracks |  ByteTrack for dense tracks
 :-------------------------:|:-------------------------:
 <img src="data/mot_simple_naive.png" width="480">  |  <img src="data/mot_simple_bytetrack_naive.png" width="480">
 
-Simple centroid IoU tracker for spread tracks |  ByteTrack + Hungarian algorithm for spread tracks
+Simple tracker for spread tracks |  ByteTrack for spread tracks
 :-------------------------:|:-------------------------:
 <img src="data/mot_simple_spread.png" width="480">  |  <img src="data/mot_simple_bytetrack_spread.png" width="480">
+
+### BlobBBox (bounding box tracking)
+
+Simple tracker for dense tracks |  ByteTrack for dense tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_bbox_naive.png" width="480">  |  <img src="data/mot_bbox_bytetrack_naive.png" width="480">
+
+Simple tracker for spread tracks |  ByteTrack for spread tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_bbox_spread.png" width="480">  |  <img src="data/mot_bbox_bytetrack_spread.png" width="480">
+
+### IoU Tracker
+
+SimpleBlob dense tracks |  SimpleBlob spread tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_simple_iou_naive.png" width="480">  |  <img src="data/mot_simple_iou_spread.png" width="480">
+
+BlobBBox dense tracks |  BlobBBox spread tracks
+:-------------------------:|:-------------------------:
+<img src="data/mot_bbox_iou_naive.png" width="480">  |  <img src="data/mot_bbox_iou_spread.png" width="480">
 
 ## How to use
 
@@ -135,6 +187,99 @@ func main() {
 }
 
 ```
+
+### Example with BlobBBox
+
+When you need to track bounding box size changes (e.g., objects approaching or receding from camera), use `BlobBBox` which tracks the full bounding box state with an 8-D Kalman filter:
+
+```go
+package main
+
+import (
+	"encoding/csv"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/LdDl/mot-go/mot"
+)
+
+func main() {
+	// Same bbox data as SimpleBlob example
+	bboxesOne := [][]float64{[]float64{236, -25, 386, 35}, []float64{237, -24, 387, 36}, /* ... more frames ... */}
+	bboxesTwo := [][]float64{[]float64{321, -25, 471, 35}, []float64{322, -24, 472, 36}, /* ... more frames ... */}
+	bboxesThree := [][]float64{[]float64{151, -25, 301, 35}, []float64{152, -24, 302, 36}, /* ... more frames ... */}
+
+	// Use BlobBBox instead of SimpleBlob
+	tracker := mot.NewNewSimpleTracker[*mot.BlobBBox](15.0, 5)
+	dt := 1.0 / 25.0 // emulate 25 fps
+
+	for idx := range bboxesOne {
+		rectOne := mot.NewRect(bboxesOne[idx][0], bboxesOne[idx][1], bboxesOne[idx][2]-bboxesOne[idx][0], bboxesOne[idx][3]-bboxesOne[idx][1])
+		rectTwo := mot.NewRect(bboxesTwo[idx][0], bboxesTwo[idx][1], bboxesTwo[idx][2]-bboxesTwo[idx][0], bboxesTwo[idx][3]-bboxesTwo[idx][1])
+		rectThree := mot.NewRect(bboxesThree[idx][0], bboxesThree[idx][1], bboxesThree[idx][2]-bboxesThree[idx][0], bboxesThree[idx][3]-bboxesThree[idx][1])
+
+		// Create BlobBBox objects with time step
+		blobOne := mot.NewBlobBBoxWithTime(rectOne, dt)
+		blobTwo := mot.NewBlobBBoxWithTime(rectTwo, dt)
+		blobThree := mot.NewBlobBBoxWithTime(rectThree, dt)
+		blobs := []*mot.BlobBBox{blobOne, blobTwo, blobThree}
+
+		err := tracker.MatchObjects(blobs)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+
+	// Access velocity estimates for each tracked object
+	for objectID, object := range tracker.Objects {
+		vx, vy, vw, vh := object.GetVelocity()
+		bbox := object.GetBBox()
+		fmt.Printf("Object %s: bbox=(%.1f, %.1f, %.1f, %.1f), velocity=(vx=%.2f, vy=%.2f, vw=%.2f, vh=%.2f)\n",
+			objectID.String()[:8], bbox.X, bbox.Y, bbox.Width, bbox.Height, vx, vy, vw, vh)
+	}
+
+	// Write CSV with full bbox data: cx,cy,w,h for each track point
+	file, err := os.Create("blobs_bbox.csv")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+	writer.Comma = ';'
+
+	err = writer.Write([]string{"id", "track"})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	for objectID, object := range tracker.Objects {
+		track := object.GetTrack()
+		bbox := object.GetBBox()
+		data := make([]string, len(track))
+		for idx, pt := range track {
+			// Include center point and bbox dimensions
+			data[idx] = fmt.Sprintf("%f,%f,%f,%f", pt.X, pt.Y, bbox.Width, bbox.Height)
+		}
+		dataStr := strings.Join(data, "|")
+		err = writer.Write([]string{objectID.String(), dataStr})
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+}
+```
+
+The key differences from SimpleBlob:
+- State vector is 8-D: `[cx, cy, w, h, vx, vy, vw, vh]` instead of 4-D `[x, y, vx, vy]`
+- `GetVelocity()` returns all four velocity components: position velocity (vx, vy) and size velocity (vw, vh)
+- `GetBBox()` returns the current filtered bounding box with width and height
 
 If we plot results of filtered tracks we should get something like:
 
