@@ -6,7 +6,6 @@ toolchain go1.23.4
 
 require (
 	github.com/LdDl/kalman-filter v0.3.1
-	github.com/arthurkushman/go-hungarian v0.0.0-20210331201642-2b0c3bc2fb3f
 	github.com/google/uuid v1.4.0
 	github.com/pkg/errors v0.9.1
 )

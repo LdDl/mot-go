@@ -84,94 +84,60 @@ func (tracker *SimpleTracker[B]) isExpired(object B) bool {
 	return object.GetNoMatchTimes() > tracker.maxNoMatch
 }
 
-// MatchObjects matches new detections to existing tracked objects by centre distance
+// MatchObjects matches new detections to existing tracked objects by centre distance.
 func (tracker *SimpleTracker[B]) MatchObjects(newObjects []B) error {
-	// The caller reports the real time since the previous call through the cycle
-	// time of the incoming detections. Existing tracks were built for whatever
-	// interval was current when they were created, so rebuild them for this one:
-	// predicting a moving object over a nominal 40 ms when 160 ms actually
-	// elapsed places the predicted box a whole stride short of the detection,
-	// and the match is then lost for no other reason
 	if len(newObjects) > 0 {
-		dt := newObjects[0].GetDt()
-		for objectID := range tracker.Objects {
-			tracker.Objects[objectID].SetDt(dt)
-		}
+		tracker.SetDt(newObjects[0].GetDt())
 	}
-
-	for objectID := range tracker.Objects {
-		// Make sure that object is marked as deactivated
-		tracker.Objects[objectID].Deactivate()
-		tracker.Objects[objectID].PredictNextPosition()
+	trackIDs := make([]uuid.UUID, 0, len(tracker.Objects))
+	tracks := make([]B, 0, len(tracker.Objects))
+	for id, object := range tracker.Objects {
+		object.Deactivate()
+		trackIDs = append(trackIDs, id)
+		tracks = append(tracks, object)
 	}
-	blobsToRegister := make(map[uuid.UUID]B)
-	priorityQueue := make(distanceHeap[B], 0)
-	for i, newObject := range newObjects {
-		minID := uuid.UUID{}
-		minDistance := math.MaxFloat64
-		for objectID, object := range tracker.Objects {
-			dist := newObject.DistanceTo(object)
-			distPredicted := newObject.DistanceTo(object)
-			distVerifided := math.Min(dist, distPredicted)
-			if distVerifided < minDistance {
-				minDistance = distVerifided
-				minID = objectID
+	candidates := make([][]matchCandidate, len(newObjects))
+	row := make([]matchCandidate, 0, len(tracks))
+	for detection, object := range newObjects {
+		row = row[:0]
+		for track, existing := range tracks {
+			distance := math.Min(object.DistanceTo(existing), object.DistanceToPredicted(existing))
+			if distance < math.MaxFloat64 && (distance < object.GetDiagonal()*0.5 || distance < tracker.minDistThreshold) {
+				row = append(row, matchCandidate{track, distance})
 			}
 		}
-		distBlob := distanceBlob[B]{
-			underlying: newObjects[i],
-			distance:   minDistance,
-			id:         minID,
-		}
-		priorityQueue.Push(&distBlob)
+		candidates[detection] = append([]matchCandidate(nil), row...)
 	}
-
-	// We need to prevent double update of objects
-	reservedObjects := make(map[uuid.UUID]struct{})
-
-	for priorityQueue.Len() > 0 {
-		blobPoped := priorityQueue.Pop()
-		minDistance := blobPoped.distance
-		minID := blobPoped.id
-		underlyingBlob := blobPoped.underlying
-		// Check if object is already reserved
-		// Since we are using priority queue with min-heap then we garantee that we will update existing objects with min distance only once.
-		// For other objects with the same min_id we can create new objects
-		if _, ok := reservedObjects[minID]; ok {
-			// Register it immediately and continue
-			blobsToRegister[underlyingBlob.GetID()] = underlyingBlob
-			continue
+	matchedTracks := make([]bool, len(trackIDs))
+	matchedDetections := make([]bool, len(newObjects))
+	for _, match := range greedyMatching(candidates, len(trackIDs)) {
+		detection, track := match[0], match[1]
+		id := trackIDs[track]
+		existing := tracker.Objects[id]
+		existing.PredictNextPosition()
+		if err := existing.Update(newObjects[detection]); err != nil {
+			return errors.Wrapf(err, "Can't update blob with id %s", id.String())
 		}
-		// Additional check to filter objects
-		if minDistance < underlyingBlob.GetDiagonal()*0.5 || minDistance < tracker.minDistThreshold {
-			if _, ok := tracker.Objects[minID]; ok {
-				err := tracker.Objects[minID].Update(underlyingBlob)
-				if err != nil {
-					return errors.Wrapf(err, "Can't update blob with id %s", minID.String())
-				}
-				// Last but not least:
-				// We need to update ID of new object to match existing one
-				underlyingBlob.SetID(minID)
-				reservedObjects[minID] = struct{}{}
-			} else {
-				panic("should be impossible")
-			}
-		} else {
-			// Otherwise register object as a new one
-			blobsToRegister[underlyingBlob.GetID()] = underlyingBlob
+		existing.Activate()
+		existing.ResetNoMatch()
+		newObjects[detection].SetID(id)
+		matchedTracks[track] = true
+		matchedDetections[detection] = true
+	}
+	for track, id := range trackIDs {
+		object := tracker.Objects[id]
+		if !matchedTracks[track] {
+			object.PredictNextPosition()
+			object.IncNoMatch()
+		}
+		if tracker.isExpired(object) {
+			delete(tracker.Objects, id)
 		}
 	}
-
-	for blobID := range blobsToRegister {
-		tracker.Objects[blobID] = blobsToRegister[blobID]
-	}
-
-	// Clean up existing data
-	for objectID := range tracker.Objects {
-		tracker.Objects[objectID].IncNoMatch()
-		// Remove object if it was not found for a long time
-		if tracker.isExpired(tracker.Objects[objectID]) {
-			delete(tracker.Objects, objectID)
+	for detection, object := range newObjects {
+		if !matchedDetections[detection] {
+			object.Activate()
+			tracker.Objects[object.GetID()] = object
 		}
 	}
 	return nil
