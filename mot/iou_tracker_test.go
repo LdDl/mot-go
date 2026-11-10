@@ -33,8 +33,8 @@ func TestNewDefaultIoUTracker(t *testing.T) {
 		t.Errorf("Expected default maxNoMatch 75, got %d", tracker.maxNoMatch)
 	}
 
-	if tracker.iouThreshold != 0.0 {
-		t.Errorf("Expected default iouThreshold 0.0, got %f", tracker.iouThreshold)
+	if tracker.iouThreshold != 0.3 {
+		t.Errorf("Expected default iouThreshold 0.3, got %f", tracker.iouThreshold)
 	}
 }
 
@@ -169,7 +169,7 @@ func TestIoUTrackerSpreadSimpleBlob(t *testing.T) {
 		}
 	}
 
-	// Verify we tracked 4 objects (as in Rust tests)
+	// Verify we tracked 4 objects
 	if len(tracker.Objects) != 4 {
 		t.Errorf("Expected 4 tracked objects, got %d", len(tracker.Objects))
 	}

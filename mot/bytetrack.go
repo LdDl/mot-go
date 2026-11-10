@@ -3,7 +3,6 @@ package mot
 import (
 	"fmt"
 
-	"github.com/arthurkushman/go-hungarian"
 	"github.com/google/uuid"
 )
 
@@ -16,6 +15,7 @@ const (
 	// MatchingAlgorithmGreedy uses a greedy algorithm for faster but potentially suboptimal assignment
 	MatchingAlgorithmGreedy
 
+	// SCALE_FACTOR quantizes IoU costs for Hungarian assignment.
 	SCALE_FACTOR = 1_000_000.0
 )
 
@@ -26,7 +26,7 @@ type ByteTracker[B Blob[B]] struct {
 	maxDisappeared int
 	// When positive, tracks expire by unmatched time instead of by maxDisappeared frames. Default is 0
 	maxLostSeconds float64
-	// Maximum distance between two objects to be considered the same
+	// Minimum accepted IoU, including scores equal to the threshold
 	minIoU float64
 	// High detection confidence threshold
 	highThresh float64
@@ -73,7 +73,7 @@ func (bt *ByteTracker[B]) SetMaxLostSeconds(seconds float64) {
 	}
 }
 
-// SetMaxDisappeared switches track expiry back to a frame count (a track is removed once it reaches maxDisappeared missed frames)
+// SetMaxDisappeared switches expiry back to frames. A positive limit expires on that missed frame; zero expires on the first miss.
 func (bt *ByteTracker[B]) SetMaxDisappeared(maxDisappeared int) {
 	bt.maxDisappeared = maxDisappeared
 	bt.maxLostSeconds = 0
@@ -105,7 +105,7 @@ func (bt *ByteTracker[B]) isAlive(track B) bool {
 	if bt.maxLostSeconds > 0 {
 		return track.GetLostSeconds() <= bt.maxLostSeconds
 	}
-	return track.GetNoMatchTimes() < bt.maxDisappeared
+	return track.GetNoMatchTimes() < max(1, bt.maxDisappeared)
 }
 
 // bboxPair is a helper struct to pair track ID with its bounding box.
@@ -131,9 +131,9 @@ func (bt *ByteTracker[B]) MatchObjects(detections []B, confidences []float64) er
 		}
 	}
 
-	// Predict next positions for all existing tracks via Kalman filter
+	// Missed but unexpired tracks remain eligible for matching.
 	for _, track := range bt.Objects {
-		track.PredictNextPosition()
+		track.Deactivate()
 	}
 
 	// Get active tracks
@@ -216,7 +216,17 @@ func (bt *ByteTracker[B]) MatchObjects(detections []B, confidences []float64) er
 		}
 	}
 
-	// 3. Add new tracks for unmatched high confidence detections
+	for id, track := range bt.Objects {
+		if _, found := matchedTracks[id]; !found {
+			track.PredictNextPosition()
+			track.IncNoMatch()
+		}
+		if !bt.isAlive(track) {
+			delete(bt.Objects, id)
+		}
+	}
+
+	// Registration follows missed-track handling so the creation frame is not a miss.
 	for _, detIdx := range highDetectionIndices {
 		if _, found := matchedDetections[detIdx]; !found {
 			newBlob := detections[detIdx]
@@ -225,24 +235,11 @@ func (bt *ByteTracker[B]) MatchObjects(detections []B, confidences []float64) er
 		}
 	}
 
-	// 4. Increment no_match_times for unmatched tracks
-	for id, track := range bt.Objects {
-		if _, found := matchedTracks[id]; !found {
-			track.IncNoMatch()
-		}
-	}
-
-	// 5. Remove tracks that have disappeared for too long
-	for id, track := range bt.Objects {
-		if !bt.isAlive(track) {
-			delete(bt.Objects, id)
-		}
-	}
-
 	return nil
 }
 
-// GetActiveTracks returns a slice of active tracks.
+// GetActiveTracks returns all unexpired tracks, including missed ones.
+// Use Exists on SimpleBlob or BlobBBox to select tracks detected in the latest frame.
 func (bt *ByteTracker[B]) GetActiveTracks() []B {
 	activeTracks := make([]B, 0, len(bt.Objects))
 	for _, track := range bt.Objects {
@@ -286,61 +283,7 @@ func (bt *ByteTracker[B]) performMatching(
 ) [][2]int {
 	switch bt.algorithm {
 	case MatchingAlgorithmHungarian:
-		if len(trackBBoxes) == 0 || len(detectionIndices) == 0 {
-			return [][2]int{}
-		}
-		numTracks := len(trackBBoxes)
-		numDetections := len(detectionIndices)
-
-		var paddedMatrix [][]float64
-		var actualNumTracks, actualNumDetections int
-		if numTracks == numDetections {
-			// Square matrix - use as is
-			paddedMatrix = iouMatrix
-			actualNumTracks = numTracks
-			actualNumDetections = numDetections
-		} else {
-			// Rectangular matrix - pad to make it square
-			paddedSize := maxInt(numTracks, numDetections)
-			paddedMatrix = make([][]float64, paddedSize)
-			// Initialize with zeros (dummy IoU values)
-			for i := 0; i < paddedSize; i++ {
-				paddedMatrix[i] = make([]float64, paddedSize)
-			}
-			// Copy original IoU values
-			for i := 0; i < numTracks; i++ {
-				for j := 0; j < numDetections; j++ {
-					paddedMatrix[i][j] = iouMatrix[i][j]
-				}
-			}
-			// Padding is done with 0.0 values (lowest IoU)
-			actualNumTracks = numTracks
-			actualNumDetections = numDetections
-		}
-		// Apply Hungarian algorithm
-		assignmentsMap := hungarian.SolveMax(paddedMatrix)
-		// Convert map[int]map[int]float64 to [][2]int
-		matches := make([][2]int, 0)
-		for trackIndex, rowMap := range assignmentsMap {
-			if len(rowMap) > 0 {
-				// Assuming the inner map contains one entry: {detectionIndex: iou_value}
-				var detectionIndex int
-				// Get the first (and assumed only) key
-				for detIdx := range rowMap {
-					detectionIndex = detIdx
-					break
-				}
-				// Ensure trackIndex and detectionIndex are within bounds of the
-				// current stage's slices. Anything outside landed on a padding
-				// column added to square the cost matrix, which is the ordinary
-				// outcome whenever there are more detections than tracks - drop
-				// it silently, the way the Rust implementation does
-				if trackIndex < actualNumTracks && detectionIndex < actualNumDetections {
-					matches = append(matches, [2]int{trackIndex, detectionIndex})
-				}
-			}
-		}
-		return matches
+		return hungarianMatching(iouMatrix, bt.minIoU)
 	case MatchingAlgorithmGreedy:
 		return bt.performGreedyMatching(iouMatrix, trackBBoxes, detectionIndices)
 	default:
@@ -354,36 +297,21 @@ func (bt *ByteTracker[B]) performGreedyMatching(
 	trackBBoxes []bboxPair,
 	detectionIndices []int,
 ) [][2]int {
-	matches := make([][2]int, 0)
-	// Keep track of detection indices that are already matched
-	matchedDetIndicesInStage := make(map[int]struct{})
-	numTracksInStage := len(trackBBoxes)
-	numDetectionsInStage := len(detectionIndices)
-	if numTracksInStage == 0 || numDetectionsInStage == 0 {
-		return matches
+	candidates := make([][]matchCandidate, len(detectionIndices))
+	row := make([]matchCandidate, 0, len(trackBBoxes))
+	for detection := range detectionIndices {
+		row = row[:0]
+		for track := range trackBBoxes {
+			score := iouMatrix[track][detection]
+			if score >= bt.minIoU {
+				row = append(row, matchCandidate{track, -score})
+			}
+		}
+		candidates[detection] = append([]matchCandidate(nil), row...)
 	}
-	// Iterate through tracks of the current stage
-	for i := 0; i < numTracksInStage; i++ {
-		// Initialize with a value lower than any possible IoU
-		bestIoU := -1.0
-		bestDetIdxInStage := -1
-		// Iterate through detections of the current stage
-		for j := 0; j < numDetectionsInStage; j++ {
-			if _, found := matchedDetIndicesInStage[j]; found {
-				// This detection (in current stage) is already matched
-				continue
-			}
-			currentIoU := iouMatrix[i][j]
-			// Also check against minIoU here
-			if currentIoU > bestIoU && currentIoU >= bt.minIoU {
-				bestIoU = currentIoU
-				bestDetIdxInStage = j
-			}
-		}
-		if bestDetIdxInStage != -1 {
-			matches = append(matches, [2]int{i, bestDetIdxInStage})
-			matchedDetIndicesInStage[bestDetIdxInStage] = struct{}{}
-		}
+	matches := greedyMatching(candidates, len(trackBBoxes))
+	for i := range matches {
+		matches[i][0], matches[i][1] = matches[i][1], matches[i][0]
 	}
 	return matches
 }
@@ -413,11 +341,13 @@ func (bt *ByteTracker[B]) processMatches(
 			trackID := trackBBoxes[trackIdxInStage].ID
 			originalDetIdx := detectionIndices[detIdxInStage]
 			if track, ok := bt.Objects[trackID]; ok {
-				// Pass the detected blob
+				// Advance the filter exactly once before applying the measurement.
+				track.PredictNextPosition()
 				err := track.Update(allDetections[originalDetIdx])
 				if err != nil {
 					return fmt.Errorf("failed to update track %s: %w", trackID, err)
 				}
+				track.Activate()
 				track.ResetNoMatch()
 				// Hand the track's identity back to the caller's detection, the
 				// way SimpleTracker does. Callers read the id straight off the

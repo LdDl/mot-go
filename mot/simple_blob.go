@@ -11,17 +11,18 @@ import (
 // SimpleBlob is a tracked object using 2D Kalman filter for center position.
 // It implements Blob[*SimpleBlob] interface.
 type SimpleBlob struct {
-	id                    uuid.UUID
-	currentBBox           Rectangle
-	currentCenter         Point
-	predictedNextPosition Point
-	track                 []Point
-	maxTrackLen           int
-	active                bool
-	lostSeconds           float64
-	noMatchTimes          int
-	diagonal              float64
-	tracker               *kalman_filter.Kalman2D
+	id            uuid.UUID
+	currentBBox   Rectangle
+	currentCenter Point
+
+	nextPosition Point
+	track        []Point
+	maxTrackLen  int
+	active       bool
+	lostSeconds  float64
+	noMatchTimes int
+	diagonal     float64
+	tracker      *kalman_filter.Kalman2D
 }
 
 func NewSimpleBlobWithCenterTime(currentCenter Point, currentBbox Rectangle, dt float64) *SimpleBlob {
@@ -35,18 +36,19 @@ func NewSimpleBlobWithCenterTime(currentCenter Point, currentBbox Rectangle, dt 
 	stdDevMy := 0.1
 	kf := kalman_filter.NewKalman2D(dt, ux, uy, stdDevA, stdDevMx, stdDevMy, kalman_filter.WithState2D(currentCenter.X, currentCenter.Y))
 	blob := SimpleBlob{
-		id:                    uuid.New(),
-		currentBBox:           currentBbox,
-		currentCenter:         currentCenter,
-		predictedNextPosition: Point{X: 0, Y: 0},
-		track:                 make([]Point, 0, 150),
-		maxTrackLen:           150,
-		active:                false,
-		noMatchTimes:          0,
-		diagonal:              diagonal,
-		tracker:               kf,
+		id:            uuid.New(),
+		currentBBox:   currentBbox,
+		currentCenter: currentCenter,
+
+		track:        make([]Point, 0, 150),
+		maxTrackLen:  150,
+		active:       false,
+		noMatchTimes: 0,
+		diagonal:     diagonal,
+		tracker:      kf,
 	}
 	blob.track = append(blob.track, blob.currentCenter)
+	blob.refreshPrediction()
 	return &blob
 }
 
@@ -63,18 +65,19 @@ func NewSimpleBlobWithTime(currentBbox Rectangle, dt float64) *SimpleBlob {
 	stdDevMy := 0.1
 	kf := kalman_filter.NewKalman2D(dt, ux, uy, stdDevA, stdDevMx, stdDevMy, kalman_filter.WithState2D(centerX, centerY))
 	blob := SimpleBlob{
-		id:                    uuid.New(),
-		currentBBox:           currentBbox,
-		currentCenter:         Point{X: centerX, Y: centerY},
-		predictedNextPosition: Point{X: 0, Y: 0},
-		track:                 make([]Point, 0, 150),
-		maxTrackLen:           150,
-		active:                false,
-		noMatchTimes:          0,
-		diagonal:              diagonal,
-		tracker:               kf,
+		id:            uuid.New(),
+		currentBBox:   currentBbox,
+		currentCenter: Point{X: centerX, Y: centerY},
+
+		track:        make([]Point, 0, 150),
+		maxTrackLen:  150,
+		active:       false,
+		noMatchTimes: 0,
+		diagonal:     diagonal,
+		tracker:      kf,
 	}
 	blob.track = append(blob.track, blob.currentCenter)
+	blob.refreshPrediction()
 	return &blob
 }
 
@@ -91,6 +94,9 @@ func (blob *SimpleBlob) Activate() {
 func (blob *SimpleBlob) Deactivate() {
 	blob.active = false
 }
+
+// Exists reports whether the stored track was detected in the latest frame.
+func (blob *SimpleBlob) Exists() bool { return blob.active }
 
 // GetID returns blob's indentifier
 func (blob *SimpleBlob) GetID() uuid.UUID {
@@ -112,11 +118,11 @@ func (blob *SimpleBlob) GetBBox() Rectangle {
 	return blob.currentBBox
 }
 
-// GetPredictedBBox returns bounding box centered on the predicted next position
+// GetPredictedBBox returns the next prediction without advancing the Kalman filter.
 func (blob *SimpleBlob) GetPredictedBBox() Rectangle {
 	return Rectangle{
-		X:      blob.predictedNextPosition.X - blob.currentBBox.Width/2.0,
-		Y:      blob.predictedNextPosition.Y - blob.currentBBox.Height/2.0,
+		X:      blob.nextPosition.X - blob.currentBBox.Width/2.0,
+		Y:      blob.nextPosition.Y - blob.currentBBox.Height/2.0,
 		Width:  blob.currentBBox.Width,
 		Height: blob.currentBBox.Height,
 	}
@@ -137,9 +143,10 @@ func (blob *SimpleBlob) GetMaxTrackLen() int {
 	return blob.maxTrackLen
 }
 
-// SetMaxTrackLen sets blob's max track length
+// SetMaxTrackLen immediately keeps only the newest points. Non-positive limits disable history.
 func (blob *SimpleBlob) SetMaxTrackLen(newMaxTrackLen int) {
-	blob.maxTrackLen = newMaxTrackLen
+	blob.maxTrackLen = max(0, newMaxTrackLen)
+	blob.track = trimTrack(blob.track, blob.maxTrackLen)
 }
 
 // GetNoMatchTimes returns blob's no match times
@@ -169,9 +176,9 @@ func (blob *SimpleBlob) DistanceTo(otherBlob *SimpleBlob) float64 {
 	return euclideanDistance(blob.currentCenter, otherBlob.currentCenter)
 }
 
-// DistanceToPredicted returns distance to other blob (predicted center to predicted center)
+// DistanceToPredicted compares this detection center with the other blob's next prediction.
 func (blob *SimpleBlob) DistanceToPredicted(otherBlob *SimpleBlob) float64 {
-	return euclideanDistance(blob.predictedNextPosition, otherBlob.predictedNextPosition)
+	return euclideanDistance(blob.currentCenter, otherBlob.nextPosition)
 }
 
 // GetDt returns the cycle time the Kalman filter is currently built for
@@ -181,15 +188,17 @@ func (blob *SimpleBlob) GetDt() float64 {
 
 // SetDt rebuilds the Kalman filter for a new cycle time
 func (blob *SimpleBlob) SetDt(dt float64) {
+	if dt == blob.GetDt() {
+		return
+	}
 	blob.tracker.SetDt(dt)
+	blob.refreshPrediction()
 }
 
 // PredictNextPosition execute Kalman filter's first step but without re-evaluating state vector based on Kalman gain
 func (blob *SimpleBlob) PredictNextPosition() {
 	blob.tracker.Predict()
-	stateX, stateY := blob.tracker.GetState()
-	blob.predictedNextPosition.X = stateX
-	blob.predictedNextPosition.Y = stateY
+	blob.refreshPrediction()
 }
 
 // Update updates blob's position and execute Kalman filter's second step (evalute state vector based on Kalman gain)
@@ -219,9 +228,19 @@ func (blob *SimpleBlob) Update(newBlob *SimpleBlob) error {
 	blob.noMatchTimes = 0
 	blob.lostSeconds = 0
 	// Update track
-	blob.track = append(blob.track, blob.currentCenter)
-	if len(blob.track) > blob.maxTrackLen {
-		blob.track = blob.track[1:]
-	}
+	blob.track = appendTrackPoint(blob.track, blob.maxTrackLen, blob.currentCenter)
+	blob.refreshPrediction()
 	return nil
+}
+
+// Cache the next state once per filter change, avoiding state-vector copies for every candidate.
+func (blob *SimpleBlob) refreshPrediction() {
+	state := blob.tracker.GetVectorState()
+	dt := blob.GetDt()
+	// Both constructor control inputs are unit acceleration.
+	accelerationOffset := dt * dt / 2
+	blob.nextPosition = Point{
+		X: state.At(0, 0) + dt*state.At(2, 0) + accelerationOffset,
+		Y: state.At(1, 0) + dt*state.At(3, 0) + accelerationOffset,
+	}
 }

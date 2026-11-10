@@ -12,16 +12,17 @@ import (
 // State vector: [cx, cy, w, h, vx, vy, vw, vh] - center position, size, and velocities.
 // It implements Blob[*BlobBBox] interface.
 type BlobBBox struct {
-	id            uuid.UUID
-	currentBBox   Rectangle
-	predictedBBox Rectangle
-	track         []Point
-	maxTrackLen   int
-	active        bool
-	lostSeconds   float64
-	noMatchTimes  int
-	diagonal      float64
-	tracker       *kalman_filter.KalmanBBox
+	id          uuid.UUID
+	currentBBox Rectangle
+
+	nextBBox     Rectangle
+	track        []Point
+	maxTrackLen  int
+	active       bool
+	lostSeconds  float64
+	noMatchTimes int
+	diagonal     float64
+	tracker      *kalman_filter.KalmanBBox
 }
 
 // NewBlobBBoxWithTime creates a new BlobBBox with specified time step.
@@ -47,14 +48,8 @@ func NewBlobBBoxWithTime(currentBbox Rectangle, dt float64) *BlobBBox {
 	)
 
 	blob := BlobBBox{
-		id:          uuid.New(),
-		currentBBox: currentBbox,
-		predictedBBox: Rectangle{
-			X:      currentBbox.X,
-			Y:      currentBbox.Y,
-			Width:  currentBbox.Width,
-			Height: currentBbox.Height,
-		},
+		id:           uuid.New(),
+		currentBBox:  currentBbox,
 		track:        make([]Point, 0, 150),
 		maxTrackLen:  150,
 		active:       false,
@@ -63,6 +58,7 @@ func NewBlobBBoxWithTime(currentBbox Rectangle, dt float64) *BlobBBox {
 		tracker:      kf,
 	}
 	blob.track = append(blob.track, Point{X: centerX, Y: centerY})
+	blob.refreshPrediction()
 	return &blob
 }
 
@@ -80,6 +76,9 @@ func (blob *BlobBBox) Activate() {
 func (blob *BlobBBox) Deactivate() {
 	blob.active = false
 }
+
+// Exists reports whether the stored track was detected in the latest frame.
+func (blob *BlobBBox) Exists() bool { return blob.active }
 
 // GetID returns blob's identifier
 func (blob *BlobBBox) GetID() uuid.UUID {
@@ -104,9 +103,9 @@ func (blob *BlobBBox) GetBBox() Rectangle {
 	return blob.currentBBox
 }
 
-// GetPredictedBBox returns predicted bounding box from Kalman filter
+// GetPredictedBBox returns the next prediction without advancing the Kalman filter.
 func (blob *BlobBBox) GetPredictedBBox() Rectangle {
-	return blob.predictedBBox
+	return blob.nextBBox
 }
 
 // GetDiagonal returns blob's estimated diagonal
@@ -124,9 +123,10 @@ func (blob *BlobBBox) GetMaxTrackLen() int {
 	return blob.maxTrackLen
 }
 
-// SetMaxTrackLen sets blob's max track length
+// SetMaxTrackLen immediately keeps only the newest points. Non-positive limits disable history.
 func (blob *BlobBBox) SetMaxTrackLen(newMaxTrackLen int) {
-	blob.maxTrackLen = newMaxTrackLen
+	blob.maxTrackLen = max(0, newMaxTrackLen)
+	blob.track = trimTrack(blob.track, blob.maxTrackLen)
 }
 
 // GetNoMatchTimes returns blob's no match times
@@ -156,17 +156,11 @@ func (blob *BlobBBox) DistanceTo(otherBlob *BlobBBox) float64 {
 	return euclideanDistance(blob.GetCenter(), otherBlob.GetCenter())
 }
 
-// DistanceToPredicted returns distance to other blob (predicted center to predicted center)
+// DistanceToPredicted compares this detection center with the other blob's next prediction.
 func (blob *BlobBBox) DistanceToPredicted(otherBlob *BlobBBox) float64 {
-	predictedCenter := Point{
-		X: blob.predictedBBox.X + blob.predictedBBox.Width/2.0,
-		Y: blob.predictedBBox.Y + blob.predictedBBox.Height/2.0,
-	}
-	otherPredictedCenter := Point{
-		X: otherBlob.predictedBBox.X + otherBlob.predictedBBox.Width/2.0,
-		Y: otherBlob.predictedBBox.Y + otherBlob.predictedBBox.Height/2.0,
-	}
-	return euclideanDistance(predictedCenter, otherPredictedCenter)
+	bbox := otherBlob.GetPredictedBBox()
+	center := Point{X: bbox.X + bbox.Width/2, Y: bbox.Y + bbox.Height/2}
+	return euclideanDistance(blob.GetCenter(), center)
 }
 
 // GetDt returns the cycle time the Kalman filter is currently built for
@@ -176,19 +170,17 @@ func (blob *BlobBBox) GetDt() float64 {
 
 // SetDt rebuilds the Kalman filter for a new cycle time
 func (blob *BlobBBox) SetDt(dt float64) {
+	if dt == blob.GetDt() {
+		return
+	}
 	blob.tracker.SetDt(dt)
+	blob.refreshPrediction()
 }
 
 // PredictNextPosition executes Kalman filter prediction step
 func (blob *BlobBBox) PredictNextPosition() {
 	blob.tracker.Predict()
-	cx, cy, w, h := blob.tracker.GetState()
-	blob.predictedBBox = Rectangle{
-		X:      cx - w/2.0,
-		Y:      cy - h/2.0,
-		Width:  w,
-		Height: h,
-	}
+	blob.refreshPrediction()
 }
 
 // Update updates blob's bounding box and executes Kalman filter update step
@@ -222,10 +214,8 @@ func (blob *BlobBBox) Update(newBlob *BlobBBox) error {
 	blob.lostSeconds = 0
 
 	// Update track with center position
-	blob.track = append(blob.track, Point{X: cx, Y: cy})
-	if len(blob.track) > blob.maxTrackLen {
-		blob.track = blob.track[1:]
-	}
+	blob.track = appendTrackPoint(blob.track, blob.maxTrackLen, Point{X: cx, Y: cy})
+	blob.refreshPrediction()
 	return nil
 }
 
@@ -240,4 +230,9 @@ func (blob *BlobBBox) GetMahalanobisDistance(otherBlob *BlobBBox) (float64, erro
 	cx := otherBBox.X + otherBBox.Width/2.0
 	cy := otherBBox.Y + otherBBox.Height/2.0
 	return blob.tracker.MahalanobisDistance(cx, cy, otherBBox.Width, otherBBox.Height)
+}
+
+func (blob *BlobBBox) refreshPrediction() {
+	cx, cy, w, h := blob.tracker.GetPredictedState()
+	blob.nextBBox = Rectangle{X: cx - w/2, Y: cy - h/2, Width: w, Height: h}
 }

@@ -13,6 +13,7 @@ type Blob[Self any] interface {
 	// Geometry
 	GetCenter() Point
 	GetBBox() Rectangle
+	// GetPredictedBBox returns the next prediction without advancing the filter.
 	GetPredictedBBox() Rectangle
 	GetDiagonal() float64
 

@@ -11,9 +11,9 @@
 - [Track lifetime: frames or seconds](#track-lifetime-frames-or-seconds)
 - [References](#References)
 
-## Breaking Changes (v0.4.0)
+## Generic trackers
 
-Trackers are now generic over the `Blob[Self]` interface, enabling custom blob implementations.
+Trackers are now generic over the `Blob[Self]` interface, enabling custom blob implementations:
 
 **Before:**
 ```go
@@ -55,6 +55,12 @@ vx, vy, vw, vh := blob.GetVelocity()
 
 Both blob types work with `SimpleTracker`, `ByteTracker`, and `IoUTracker`.
 
+For tracks stored in a tracker, `Exists()` is true when detected in the latest frame, including creation and recovery. Missed tracks are inactive but remain available for matching until expiry. `ByteTracker.GetActiveTracks()` returns all unexpired tracks, including inactive ones; filter with `Exists()` when only current detections are needed.
+
+`SetMaxTrackLen(n)` immediately keeps only the newest `n` history points. Zero or negative values clear and disable history without stopping tracking. Increasing the limit preserves the remaining points; discarded history is not restored.
+
+`GetPredictedBBox()` returns the next Kalman prediction without advancing the filter. `DistanceToPredicted(other)` compares this detection's current center with the other track's next predicted center. Custom `Blob` implementations must follow the same prediction contract.
+
 ## About
 
 This is my second attempt to create some pretty naive implementation of multi-object tracker. The first one was [gocv-blob](https://github.com/LdDl/gocv-blob).
@@ -67,10 +73,15 @@ This one uses similar approach to [this implementation](https://github.com/LdDl/
 You can use this library to track vehicles / peoples and etc. when you don't need that much accuracy or ReID.
 
 **What Multi-Object tracking algorithms are implemented?**
+
 - Centroids distance + diagonal - [mot/simple_tracker.go](mot/simple_tracker.go)
-- [ByteTrack](https://arxiv.org/abs/2110.06864) using greedy matching algorithm - [mot/bytetrack.go#266](mot/bytetrack.go#266)
-- [ByteTrack](https://arxiv.org/abs/2110.06864) using [Hungarian algorithm](https://en.wikipedia.org/wiki/Hungarian_algorithm) via [go-hungarian package](https://github.com/arthurkushman/go-hungarian) - [mot/bytetrack.go#231](mot/bytetrack.go#231)
+- [ByteTrack](https://arxiv.org/abs/2110.06864) using greedy matching algorithm - [mot/bytetrack.go](mot/bytetrack.go)
+- [ByteTrack](https://arxiv.org/abs/2110.06864) using the Hungarian algorithm - [mot/hungarian_matching.go](mot/hungarian_matching.go)
 - IoU tracker with hybrid IoU + distance matching - [mot/iou_tracker.go](mot/iou_tracker.go)
+
+`NewDefaultIoUTracker` uses a matching threshold of `0.3`. It applies strictly to the hybrid IoU and distance score, allowing nearby detections to match even without overlapping boxes. An explicit zero threshold remains available through `NewIoUTracker`.
+
+Greedy matching selects the best available pair across detections and retries alternatives when a track is already reserved. Each track and detection is matched at most once per frame. ByteTracker applies `minIoU` before assignment, accepts scores equal to the threshold, and processes high-confidence detections before low-confidence detections. Only unmatched high-confidence detections create new ByteTracker tracks.
 
 **Are more advanced algorithms considered to be implemented in futher?**
 
@@ -117,8 +128,7 @@ Add dependency into your project:
 go get github.com/LdDl/mot-go
 ```
 
-Let's create really synthetic example and define similar trajectories for three objects.
-We're using pretty simple MOT algorithm, so no hard tasks for now.
+Let's create really synthetic example and define similar trajectories for three objects. We're using pretty simple MOT algorithm, so no hard tasks for now.
 
 ```go
 package main
@@ -137,7 +147,8 @@ func main() {
 	bboxesTwo := [][]float64{[]float64{321, -25, 471, 35}, []float64{322, -24, 472, 36}, []float64{323, -22, 473, 38}, []float64{321, -20, 471, 40}, []float64{321, -19, 471, 41}, []float64{322, -18, 472, 42}, []float64{322, -18, 472, 42}, []float64{323, -17, 473, 43}, []float64{322, -14, 472, 46}, []float64{322, -14, 472, 46}, []float64{322, -12, 472, 48}, []float64{322, -12, 472, 48}, []float64{322, -11, 472, 49}, []float64{322, -11, 472, 49}, []float64{322, -10, 472, 50}, []float64{322, -10, 472, 50}, []float64{322, -8, 472, 52}, []float64{322, -8, 472, 52}, []float64{321, -7, 471, 53}, []float64{321, -7, 471, 53}, []float64{321, -6, 471, 54}, []float64{321, -6, 471, 54}, []float64{321, -2, 471, 58}, []float64{320, 0, 470, 60}, []float64{321, 2, 471, 62}, []float64{321, 5, 471, 65}, []float64{321, 9, 471, 69}, []float64{320, 12, 470, 72}, []float64{320, 14, 470, 74}, []float64{318, 16, 468, 76}, []float64{317, 26, 467, 86}, []float64{318, 28, 468, 88}, []float64{318, 40, 468, 100}, []float64{318, 30, 468, 90}, []float64{317, 22, 467, 82}, []float64{317, 34, 467, 94}, []float64{317, 21, 467, 81}, []float64{318, 40, 468, 100}, []float64{317, 40, 467, 100}, []float64{317, 40, 467, 100}, []float64{317, 36, 467, 96}, []float64{317, 53, 467, 113}, []float64{317, 50, 467, 110}, []float64{318, 55, 468, 115}, []float64{317, 50, 467, 110}, []float64{319, 68, 469, 128}, []float64{316, 49, 466, 109}, []float64{317, 68, 467, 128}, []float64{316, 31, 466, 91}, []float64{317, 64, 467, 124}, []float64{318, 71, 468, 131}, []float64{316, 64, 466, 124}, []float64{316, 74, 466, 134}, []float64{316, 64, 466, 124}, []float64{315, 77, 465, 137}, []float64{317, 82, 467, 142}, []float64{317, 78, 467, 138}, []float64{317, 78, 467, 138}, []float64{316, 79, 466, 139}, []float64{316, 79, 466, 139}, []float64{316, 91, 466, 151}, []float64{317, 78, 467, 138}, []float64{317, 78, 467, 138}, []float64{318, 90, 468, 150}, []float64{317, 92, 467, 152}, []float64{317, 92, 467, 152}, []float64{318, 98, 468, 158}, []float64{317, 100, 467, 160}, []float64{316, 92, 466, 152}, []float64{318, 110, 468, 170}, []float64{319, 92, 469, 152}, []float64{319, 92, 469, 152}, []float64{319, 110, 469, 170}, []float64{319, 92, 469, 152}, []float64{318, 104, 468, 164}, []float64{319, 111, 469, 171}, []float64{319, 106, 469, 166}, []float64{319, 106, 469, 166}, []float64{318, 124, 468, 184}, []float64{321, 125, 471, 185}, []float64{321, 125, 471, 185}, []float64{317, 120, 467, 180}, []float64{321, 131, 471, 191}, []float64{317, 132, 467, 192}, []float64{323, 139, 473, 199}, []float64{321, 141, 471, 201}, []float64{317, 151, 467, 211}, []float64{321, 145, 471, 205}, []float64{321, 145, 471, 205}, []float64{316, 133, 466, 193}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}, []float64{322, 148, 472, 208}}
 	bboxesThree := [][]float64{[]float64{151, -25, 301, 35}, []float64{152, -24, 302, 36}, []float64{153, -22, 303, 38}, []float64{151, -20, 301, 40}, []float64{151, -19, 301, 41}, []float64{152, -18, 302, 42}, []float64{152, -18, 302, 42}, []float64{153, -17, 303, 43}, []float64{152, -14, 302, 46}, []float64{152, -14, 302, 46}, []float64{152, -12, 302, 48}, []float64{152, -12, 302, 48}, []float64{152, -11, 302, 49}, []float64{152, -11, 302, 49}, []float64{152, -10, 302, 50}, []float64{152, -10, 302, 50}, []float64{152, -8, 302, 52}, []float64{152, -8, 302, 52}, []float64{151, -7, 301, 53}, []float64{151, -7, 301, 53}, []float64{151, -6, 301, 54}, []float64{151, -6, 301, 54}, []float64{151, -2, 301, 58}, []float64{150, 0, 300, 60}, []float64{151, 2, 301, 62}, []float64{151, 5, 301, 65}, []float64{151, 9, 301, 69}, []float64{150, 12, 300, 72}, []float64{150, 14, 300, 74}, []float64{148, 16, 298, 76}, []float64{147, 26, 297, 86}, []float64{148, 28, 298, 88}, []float64{148, 40, 298, 100}, []float64{148, 30, 298, 90}, []float64{147, 22, 297, 82}, []float64{147, 34, 297, 94}, []float64{147, 21, 297, 81}, []float64{148, 40, 298, 100}, []float64{147, 40, 297, 100}, []float64{147, 40, 297, 100}, []float64{147, 36, 297, 96}, []float64{147, 53, 297, 113}, []float64{147, 50, 297, 110}, []float64{148, 55, 298, 115}, []float64{147, 50, 297, 110}, []float64{149, 68, 299, 128}, []float64{146, 49, 296, 109}, []float64{147, 68, 297, 128}, []float64{146, 31, 296, 91}, []float64{147, 64, 297, 124}, []float64{148, 71, 298, 131}, []float64{146, 64, 296, 124}, []float64{146, 74, 296, 134}, []float64{146, 64, 296, 124}, []float64{145, 77, 295, 137}, []float64{147, 82, 297, 142}, []float64{147, 78, 297, 138}, []float64{147, 78, 297, 138}, []float64{146, 79, 296, 139}, []float64{146, 79, 296, 139}, []float64{146, 91, 296, 151}, []float64{147, 78, 297, 138}, []float64{147, 78, 297, 138}, []float64{148, 90, 298, 150}, []float64{147, 92, 297, 152}, []float64{147, 92, 297, 152}, []float64{148, 98, 298, 158}, []float64{147, 100, 297, 160}, []float64{146, 92, 296, 152}, []float64{148, 110, 298, 170}, []float64{149, 92, 299, 152}, []float64{149, 92, 299, 152}, []float64{149, 110, 299, 170}, []float64{149, 92, 299, 152}, []float64{148, 104, 298, 164}, []float64{149, 111, 299, 171}, []float64{149, 106, 299, 166}, []float64{149, 106, 299, 166}, []float64{148, 124, 298, 184}, []float64{151, 125, 301, 185}, []float64{151, 125, 301, 185}, []float64{147, 120, 297, 180}, []float64{151, 131, 301, 191}, []float64{147, 132, 297, 192}, []float64{153, 139, 303, 199}, []float64{151, 141, 301, 201}, []float64{147, 151, 297, 211}, []float64{151, 145, 301, 205}, []float64{151, 145, 301, 205}, []float64{146, 133, 296, 193}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}, []float64{152, 148, 302, 208}}
 	tracker := mot.NewNewSimpleTracker[*mot.SimpleBlob](15.0, 5)
-	dt := 1.0 / 25.0 // emulate 25 fps
+	// Emulate 25 fps.
+	dt := 1.0 / 25.0
 
 	for idx := range bboxesOne {
 		rectOne := mot.NewRect(bboxesOne[idx][0], bboxesOne[idx][1], bboxesOne[idx][2]-bboxesOne[idx][0], bboxesOne[idx][3]-bboxesOne[idx][1])
@@ -213,7 +224,8 @@ func main() {
 
 	// Use BlobBBox instead of SimpleBlob
 	tracker := mot.NewNewSimpleTracker[*mot.BlobBBox](15.0, 5)
-	dt := 1.0 / 25.0 // emulate 25 fps
+	// Emulate 25 fps.
+	dt := 1.0 / 25.0
 
 	for idx := range bboxesOne {
 		rectOne := mot.NewRect(bboxesOne[idx][0], bboxesOne[idx][1], bboxesOne[idx][2]-bboxesOne[idx][0], bboxesOne[idx][3]-bboxesOne[idx][1])
@@ -278,6 +290,7 @@ func main() {
 ```
 
 The key differences from SimpleBlob:
+
 - State vector is 8-D: `[cx, cy, w, h, vx, vy, vw, vh]` instead of 4-D `[x, y, vx, vy]`
 - `GetVelocity()` returns all four velocity components: position velocity (vx, vy) and size velocity (vw, vh)
 - `GetBBox()` returns the current filtered bounding box with width and height
@@ -294,22 +307,29 @@ Similar (for code example above)            |  Spread
 
 A tracker drops an object once it has gone unmatched for too long. By default that limit is a number of frames (`maxNoMatch` for `IoUTracker`/`SimpleTracker`, `maxDisappeared` for `ByteTracker`). A frame count silently changes meaning whenever the effective frame rate does: every 2nd frame processed, a detector that slowed down under load, a stream that stalled - 60 frames is 2 s at one moment and 12 s at another, while an occlusion lasts the same number of seconds regardless.
 
+New and matched tracks have zero missed frames and zero lost seconds. Only unmatched existing tracks advance these counters. `SimpleTracker` and `IoUTracker` expire after more than `maxNoMatch` misses; ByteTracker expires upon reaching a positive `maxDisappeared` limit. With a zero frame limit, all three trackers retain detected tracks and remove them on the first miss.
+
 Switch the limit to time with `SetMaxLostSeconds`:
 
 ```go
 tracker := mot.NewIoUTracker[*mot.BlobBBox](60, 0.3)
-tracker.SetMaxLostSeconds(2.0) // the frame limit is ignored from now on
+// The frame limit is ignored while time expiry is enabled.
+tracker.SetMaxLostSeconds(2.0)
 ```
 
 The unmatched time of a track is the sum of the cycle times (`dt`) of the frames it was missed on, so it is only as good as the `dt` you report. Build detections with the real interval since the previous processed frame (`NewBlobBBoxWithTime`), not with `1 / fps`, and on frames **without** detections call `tracker.SetDt(dt)` before `MatchObjects`, because there is no detection to carry it:
 
 ```go
-tracker.SetDt(dt) // every frame: real seconds since the previous processed frame
-if err := tracker.MatchObjects(detections); err != nil { ... }
+// Every frame: real seconds since the previous processed frame.
+tracker.SetDt(dt)
+if err := tracker.MatchObjects(detections); err != nil {
+    panic(err)
+}
 ```
 
 `SetMaxNoMatch` (`SetMaxDisappeared` for `ByteTracker`) switches back to the frame rule. `GetLostSeconds` on a blob exposes the accumulated unmatched time per track.
 
 ## References
+
 - [Implementation of Kalman filter, Dimitrii Lopanov, 2023](https://github.com/LdDl/kalman-filter#implementation-of-discrete-kalman-filter-for-object-tracking-purposes)
 - [Wikipedia](https://en.wikipedia.org/wiki/Multiple_object_tracking)
